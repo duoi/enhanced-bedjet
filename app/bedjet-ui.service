@@ -1,0 +1,15 @@
+[Unit]
+Description=BedJet Hub Web UI
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/bedjet/hub/app
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/npm run preview -- --host 0.0.0.0 --port 8678
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

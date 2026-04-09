@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#080c10"/>
+  <path d="M256 120c-75 0-136 61-136 136s61 136 136 136 136-61 136-136-61-136-136-136zm0 240c-57.4 0-104-46.6-104-104s46.6-104 104-104 104 46.6 104 104-46.6 104-104 104z" fill="#5bc8f5" opacity="0.25"/>
+  <path d="M256 152a104 104 0 0 1 90 52" fill="none" stroke="#5bc8f5" stroke-width="20" stroke-linecap="round"/>
+  <circle cx="256" cy="256" r="8" fill="#5bc8f5"/>
+  <text x="256" y="420" text-anchor="middle" font-family="sans-serif" font-weight="600" font-size="48" fill="rgba(255,255,255,0.7)">BedJet</text>
+</svg>

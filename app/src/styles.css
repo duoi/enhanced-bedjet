@@ -1,0 +1,1042 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+::-webkit-scrollbar {
+  display: none;
+}
+html,
+body {
+  background: #080c10;
+  color: #e8ecf0;
+  font-family: "DM Sans", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overscroll-behavior: none;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-up {
+  animation: fadeUp 0.5s ease both;
+}
+
+/* ── Layout ──────────────────────────────────────────────── */
+
+.app-shell {
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+.app-content {
+  width: 100%;
+  max-width: 390px;
+  min-height: 100vh;
+  position: relative;
+}
+
+/* ── Typography helpers ──────────────────────────────────── */
+
+.label-mono {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.3);
+  font-family: "DM Mono", monospace;
+}
+.section-label {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.25);
+  margin-bottom: 8px;
+  font-family: "DM Mono", monospace;
+}
+
+/* ── Card ────────────────────────────────────────────────── */
+
+.card {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 16px;
+  padding: 16px;
+}
+
+/* ── Tabs ────────────────────────────────────────────────── */
+
+.tab-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: "DM Sans", sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 8px 16px;
+  color: rgba(255, 255, 255, 0.3);
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+}
+.tab-btn:hover {
+  color: rgba(255, 255, 255, 0.5);
+}
+.tab-btn.active {
+  color: white;
+  border-bottom-color: white;
+}
+
+/* ── Mode buttons ────────────────────────────────────────── */
+
+.mode-btn {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 12px;
+  padding: 10px 8px;
+  cursor: pointer;
+  color: rgba(255, 255, 255, 0.4);
+  font-family: "DM Sans", sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  letter-spacing: 0.03em;
+}
+.mode-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.7);
+}
+.mode-btn.active {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: white;
+}
+.mode-btn.loading {
+  animation: btn-pulse 0.8s ease infinite;
+  opacity: 0.7;
+}
+@keyframes btn-pulse {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 0.4; }
+}
+
+/* ── Sliders ─────────────────────────────────────────────── */
+
+.slider-wrap input[type="range"] {
+  -webkit-appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.08);
+  outline: none;
+  cursor: pointer;
+}
+.slider-wrap input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 0 12px rgba(255, 255, 255, 0.3);
+  cursor: grab;
+  transition: transform 0.15s;
+}
+.slider-wrap input[type="range"]:active::-webkit-slider-thumb {
+  transform: scale(1.2);
+  cursor: grabbing;
+}
+
+/* ── Bottom bar ──────────────────────────────────────────── */
+
+.bottom-bar {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 390px;
+  background: rgba(8, 12, 16, 0.92);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 10px 20px calc(10px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  z-index: 100;
+}
+
+.power-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+  padding: 8px 18px;
+  color: white;
+  font-family: "DM Sans", sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  letter-spacing: 0.04em;
+}
+
+/* ── Shared buttons ──────────────────────────────────────── */
+
+.primary-btn {
+  width: 100%;
+  padding: 16px;
+  border-radius: 14px;
+  background: rgba(91, 200, 245, 0.08);
+  border: 1px solid rgba(91, 200, 245, 0.2);
+  color: #5bc8f5;
+  font-family: "DM Sans", sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+  transition: all 0.2s;
+}
+.primary-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.secondary-btn {
+  width: 100%;
+  padding: 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.5);
+  font-family: "DM Sans", sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.icon-btn {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 4px 8px;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 11px;
+  cursor: pointer;
+  font-family: "DM Sans", sans-serif;
+  transition: all 0.2s;
+}
+.icon-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.7);
+}
+.icon-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.fan-preset {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.2);
+  font-family: "DM Mono", monospace;
+  letter-spacing: 0.04em;
+  transition: color 0.2s;
+  padding: 2px;
+}
+.fan-preset:hover {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* ── Form inputs ─────────────────────────────────────────── */
+
+.step-input {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 8px;
+  color: white;
+  font-size: 14px;
+  font-family: "DM Mono", monospace;
+  outline: none;
+  text-align: center;
+  box-sizing: border-box;
+}
+.step-input:focus {
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+/* ── Toggle switch ───────────────────────────────────────── */
+
+.toggle-track {
+  width: 40px;
+  height: 22px;
+  border-radius: 11px;
+  border: none;
+  cursor: pointer;
+  position: relative;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+.toggle-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: white;
+  position: absolute;
+  top: 3px;
+  transition: left 0.2s;
+}
+
+/* ── Circular temperature arc ────────────────────────────── */
+
+.temp-arc-wrap svg {
+  overflow: visible;
+}
+.temp-arc-wrap svg circle {
+  cursor: grab;
+}
+.temp-arc-wrap svg circle:active {
+  cursor: grabbing;
+}
+
+/* ── Screen pages ────────────────────────────────────────── */
+
+.page-shell {
+  padding: 28px 20px;
+  animation: fadeUp 0.4s ease;
+}
+
+/* ── App tabs (with inline status) ───────────────────────── */
+
+.tab-row {
+  display: flex;
+  align-items: center;
+  padding: env(safe-area-inset-top, 12px) 16px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  gap: 4px;
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: rgba(8, 12, 16, 0.92);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+.tab-status {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: 4px;
+}
+.offline-label {
+  font-size: 10px;
+  color: #f87171;
+  font-family: "DM Mono", monospace;
+}
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--dot-color, #f87171);
+  box-shadow: 0 0 8px var(--dot-color, #f87171);
+}
+.status-dot.pulse {
+  animation: pulse 3s ease infinite;
+}
+
+/* ── Bottom bar details ──────────────────────────────────── */
+
+.bottom-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.bottom-bar-mode {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.5);
+}
+.bottom-bar-sep {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.2);
+}
+.bottom-bar-stats {
+  font-size: 13px;
+  font-family: "DM Mono", monospace;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+/* ── Playfair display value ──────────────────────────────── */
+
+.display-value {
+  font-family: "Playfair Display", serif;
+  color: white;
+}
+
+/* ── Active program banner ───────────────────────────────── */
+
+.active-banner {
+  padding: 16px;
+  background: rgba(91, 200, 245, 0.06);
+  border: 1px solid rgba(91, 200, 245, 0.15);
+  border-radius: 14px;
+}
+.active-banner-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.active-banner-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: #5bc8f5;
+}
+.active-banner-subtitle {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.35);
+  font-family: "DM Mono", monospace;
+  margin-top: 2px;
+}
+.active-banner-progress {
+  height: 3px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.active-banner-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: #5bc8f5;
+  transition: width 0.5s ease;
+}
+
+/* ── Danger / stop button ────────────────────────────────── */
+
+.danger-btn {
+  background: rgba(248, 113, 113, 0.1);
+  border: 1px solid rgba(248, 113, 113, 0.2);
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 12px;
+  color: #f87171;
+  cursor: pointer;
+  font-family: "DM Sans", sans-serif;
+}
+.danger-btn-full {
+  width: 100%;
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(248, 113, 113, 0.06);
+  border: 1px solid rgba(248, 113, 113, 0.15);
+  color: #f87171;
+  font-size: 13px;
+  cursor: pointer;
+  font-family: "DM Sans", sans-serif;
+}
+
+/* ── Empty / loading states ──────────────────────────────── */
+
+.empty-state {
+  text-align: center;
+  padding: 40px 0;
+  color: rgba(255, 255, 255, 0.25);
+}
+.empty-state-icon {
+  font-size: 24px;
+  margin-bottom: 8px;
+}
+.empty-state-text {
+  font-size: 13px;
+}
+.empty-state-sub {
+  font-size: 11px;
+  margin-top: 4px;
+  color: rgba(255, 255, 255, 0.15);
+}
+.loading-state {
+  text-align: center;
+  padding: 40px 0;
+  color: rgba(255, 255, 255, 0.2);
+}
+
+/* ── Error box ───────────────────────────────────────────── */
+
+.error-box {
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  background: rgba(248, 113, 113, 0.06);
+  border: 1px solid rgba(248, 113, 113, 0.15);
+  border-radius: 10px;
+  font-size: 12px;
+  color: #f87171;
+}
+
+/* ── Control screen ──────────────────────────────────────── */
+
+.temp-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 0 8px;
+  position: relative;
+}
+.temp-center {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -52%);
+  text-align: center;
+  pointer-events: none;
+}
+.temp-display {
+  font-size: 48px;
+  font-family: "Playfair Display", serif;
+  font-weight: 700;
+  line-height: 1;
+}
+.temp-unit-toggle {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.3);
+  letter-spacing: 0.1em;
+  margin-top: 4px;
+  font-family: "DM Mono", monospace;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: color 0.2s;
+  pointer-events: auto;
+}
+.temp-presets {
+  display: flex;
+  gap: 10px;
+  margin-top: -8px;
+}
+.temp-chip {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-family: "DM Mono", monospace;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.3);
+}
+.temp-chip.active {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+.mode-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+}
+.fan-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.fan-value {
+  font-size: 20px;
+  font-family: "Playfair Display", serif;
+  color: white;
+}
+.fan-value-unit {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.3);
+  margin-left: 2px;
+}
+.fan-fill {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  height: 4px;
+  border-radius: 2px;
+  transform: translateY(-50%);
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.15), rgba(255, 255, 255, 0.5));
+  pointer-events: none;
+  transition: width 0.1s;
+}
+.fan-presets {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+}
+.status-strip {
+  display: flex;
+  gap: 8px;
+  padding: 0 20px 12px;
+}
+.status-card {
+  flex: 1;
+  text-align: center;
+  padding: 10px 8px;
+}
+.status-card-value {
+  font-size: 15px;
+  font-family: "Playfair Display", serif;
+  color: white;
+}
+
+/* ── Program card ────────────────────────────────────────── */
+
+.program-card {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.program-card-body {
+  cursor: pointer;
+  flex: 1;
+  min-width: 0;
+}
+.program-card-name {
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.program-card-meta {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.3);
+  font-family: "DM Mono", monospace;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.program-card-play {
+  background: rgba(91, 200, 245, 0.08);
+  border: 1px solid rgba(91, 200, 245, 0.2);
+  border-radius: 10px;
+  padding: 8px 14px;
+  color: #5bc8f5;
+  font-size: 14px;
+  cursor: pointer;
+  flex-shrink: 0;
+  margin-left: 12px;
+}
+.program-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+/* ── Program editor ──────────────────────────────────────── */
+
+.back-btn {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 13px;
+  cursor: pointer;
+  margin-bottom: 16px;
+  padding: 0;
+  font-family: "DM Sans", sans-serif;
+}
+.program-name-input {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 14px 16px;
+  color: white;
+  font-size: 16px;
+  font-family: "Playfair Display", serif;
+  outline: none;
+  margin-bottom: 20px;
+  box-sizing: border-box;
+}
+.schedule-toggle {
+  border-radius: 10px;
+  padding: 8px 14px;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: "DM Sans", sans-serif;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.3);
+}
+.schedule-toggle.active {
+  background: rgba(91, 200, 245, 0.08);
+  border-color: rgba(91, 200, 245, 0.2);
+  color: #5bc8f5;
+  margin-bottom: 12px;
+}
+.schedule-panel {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.day-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-family: "DM Mono", monospace;
+  font-weight: 600;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.25);
+}
+.day-btn[aria-pressed="true"] {
+  background: rgba(91, 200, 245, 0.15);
+  border-color: rgba(91, 200, 245, 0.3);
+  color: #5bc8f5;
+}
+.btn-row {
+  display: flex;
+  gap: 8px;
+}
+
+/* ── Step card ───────────────────────────────────────────── */
+
+.step-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.step-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.step-index {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.2);
+  font-family: "DM Mono", monospace;
+  min-width: 16px;
+}
+.step-time {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.2);
+  font-family: "DM Mono", monospace;
+}
+.step-duration-summary {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.3);
+  font-family: "DM Mono", monospace;
+}
+.step-actions {
+  display: flex;
+  gap: 4px;
+}
+.step-field-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.step-field-label {
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.25);
+  margin-bottom: 4px;
+  font-family: "DM Mono", monospace;
+}
+
+/* ── Timing bar ──────────────────────────────────────────── */
+
+.timing-bar {
+  display: flex;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  height: 38px;
+  overflow: hidden;
+}
+.timing-segment {
+  background: transparent;
+  border: none;
+  padding: 0 12px;
+  font-size: 11px;
+  cursor: pointer;
+  color: rgba(255, 255, 255, 0.3);
+  font-family: "DM Mono", monospace;
+  font-weight: 400;
+  height: 100%;
+}
+.timing-segment.active {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  font-weight: 600;
+}
+.timing-segment-left {
+  border-radius: 8px 0 0 8px;
+}
+.timing-segment-right {
+  border-radius: 0 8px 8px 0;
+}
+.timing-divider {
+  width: 1px;
+  height: 18px;
+  background: rgba(255, 255, 255, 0.08);
+}
+.timing-value {
+  display: flex;
+  align-items: center;
+  flex: 1;
+}
+.timing-label {
+  font-size: 11px;
+  font-family: "DM Mono", monospace;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.3);
+  white-space: nowrap;
+  padding: 0 10px;
+}
+.timing-input {
+  background: transparent;
+  border: none;
+  color: white;
+  font-size: 13px;
+  font-family: "DM Mono", monospace;
+  padding: 0 10px;
+  height: 100%;
+  outline: none;
+}
+.timing-input-number {
+  width: 50px;
+  padding: 0;
+}
+.timing-suffix {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.25);
+  font-family: "DM Mono", monospace;
+}
+
+/* ── Settings screen ─────────────────────────────────────── */
+
+.settings-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+}
+.settings-label {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.5);
+}
+.status-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.status-row-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.status-row-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.device-info-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 0;
+}
+.device-info-value {
+  font-size: 12px;
+  font-family: "DM Mono", monospace;
+  color: rgba(255, 255, 255, 0.7);
+}
+.unit-btn {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 6px 12px;
+  color: white;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: "DM Mono", monospace;
+}
+.hub-input {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: white;
+  font-size: 12px;
+  font-family: "DM Mono", monospace;
+  outline: none;
+}
+.hub-addr-display {
+  font-size: 12px;
+  font-family: "DM Mono", monospace;
+  color: rgba(255, 255, 255, 0.35);
+}
+.preset-grid {
+  display: flex;
+  gap: 8px;
+}
+.preset-label {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.25);
+  font-family: "DM Mono", monospace;
+  margin-bottom: 4px;
+}
+.preset-value {
+  font-size: 13px;
+  color: white;
+}
+
+/* ── Setup screen ────────────────────────────────────────── */
+
+.setup-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 40px 24px;
+}
+.setup-branding {
+  text-align: center;
+  margin-bottom: 48px;
+}
+.setup-logo {
+  font-size: 40px;
+  margin-bottom: 16px;
+}
+.setup-title {
+  font-size: 28px;
+  font-family: "Playfair Display", serif;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.setup-subtitle {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.3);
+  letter-spacing: 0.08em;
+}
+.setup-form {
+  width: 100%;
+  max-width: 340px;
+}
+.setup-input {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  padding: 16px 18px;
+  color: white;
+  font-size: 16px;
+  font-family: "DM Mono", monospace;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.2s;
+}
+.setup-error {
+  margin-top: 12px;
+  font-size: 12px;
+  color: #f87171;
+  text-align: center;
+}
+.skip-btn {
+  margin-top: 20px;
+  width: 100%;
+  padding: 12px;
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.2);
+  font-size: 12px;
+  cursor: pointer;
+  font-family: "DM Sans", sans-serif;
+  transition: color 0.2s;
+}
+
+/* ── Select dropdowns ────────────────────────────────────── */
+
+.select-input {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 8px 24px 8px 10px;
+  color: white;
+  font-size: 14px;
+  font-family: "DM Mono", monospace;
+  outline: none;
+  cursor: pointer;
+  text-align: center;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='rgba(255,255,255,0.3)'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+}
+.select-input:focus {
+  border-color: rgba(255, 255, 255, 0.2);
+}
+.select-input option {
+  background: #1a1e24;
+  color: white;
+}
+.select-input-compact {
+  padding: 4px 20px 4px 6px;
+  font-size: 12px;
+  border-radius: 6px;
+  background-position: right 5px center;
+}
+.time-select-group {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.time-select-sep {
+  color: rgba(255, 255, 255, 0.2);
+  font-family: "DM Mono", monospace;
+  font-size: 13px;
+}
