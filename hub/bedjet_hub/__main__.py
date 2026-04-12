@@ -15,20 +15,21 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-async def try_initial_connect(ble: BleManager, max_attempts: int = 5) -> bool:
-    """Attempt initial BLE connection with exponential backoff.
+async def try_initial_connect(ble: BleManager) -> bool:
+    """Attempt initial BLE connection.
 
-    Returns True on success, False if all attempts fail.
+    ``establish_connection`` (called inside ``ble.connect()``) handles
+    retry with backoff internally. This wrapper just catches failures
+    so the hub can fall back to the auto-reconnect loop.
+
+    Returns True on success, False on failure.
     """
-    for att in range(max_attempts):
-        try:
-            await ble.connect()
-            return True
-        except Exception as exc:
-            logger.warning("BLE connect attempt %d/%d failed: %s", att + 1, max_attempts, exc)
-            await asyncio.sleep(2**att)
-    logger.warning("All %d initial connection attempts exhausted; relying on auto-reconnect", max_attempts)
-    return False
+    try:
+        await ble.connect()
+        return True
+    except Exception as exc:
+        logger.warning("Initial BLE connection failed: %s", exc)
+        return False
 
 
 async def main():

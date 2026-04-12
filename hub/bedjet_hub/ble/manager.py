@@ -1,7 +1,8 @@
 """BLE connection manager for BedJet V2 and V3 devices.
 
 Handles discovery, connection lifecycle, command queuing, automatic
-reconnection with exponential backoff, and notification parsing.
+reconnection, and notification parsing. Uses bleak-retry-connector
+for robust connection establishment with service caching.
 """
 
 from __future__ import annotations
@@ -10,6 +11,14 @@ import asyncio
 import logging
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+
+from bleak import BleakClient, BleakScanner
+from bleak.backends.device import BLEDevice
+from bleak_retry_connector import (
+    BleakClientWithServiceCache,
+    BleakNotFoundError,
+    establish_connection,
+)
 
 from . import protocol_v2, protocol_v3
 from .const import (
@@ -21,8 +30,7 @@ from .const import (
     BEDJET_V2_COMMAND_UUID,
     BEDJET_V2_SERVICE_UUID,
     BEDJET_V2_STATUS_UUID,
-    RECONNECT_INITIAL_DELAY,
-    RECONNECT_MAX_DELAY,
+    RECONNECT_DELAY,
     STALE_DATA_TIMEOUT_SECONDS,
     V2_WAKE_PACKET,
     BiodataRequestType,
@@ -38,62 +46,109 @@ class BleManager:
     """Manages the BLE connection to a single BedJet device.
 
     Supports both V2 (ISSC-based) and V3 (Nordic-based) protocol
-    variants. Command writes are serialized through an async queue
-    to avoid interleaving on the single GATT characteristic.
+    variants. Uses ``bleak-retry-connector``'s ``establish_connection``
+    for robust connection with automatic retry and service caching.
+    Command writes are serialized through an async queue to avoid
+    interleaving on the single GATT characteristic.
     """
 
-    def __init__(self, address=""):
+    def __init__(self, address: str = "") -> None:
         self._address = address
-        self._client = None
+        self._client: BleakClient | None = None
+        self._ble_device: BLEDevice | None = None
         self._connected = False
         self._model = "v3"
         self._state = DeviceState()
         self._metadata = DeviceMetadata(address=address, model="v3")
-        self._subscribers = []
+        self._subscribers: list[Callable[[DeviceState], None]] = []
         self._jitter = JitterSuppressor()
-        self._command_queue = asyncio.Queue()
-        self._reconnect_task = None
-        self._command_worker_task = None
+        self._command_queue: asyncio.Queue[bytes] = asyncio.Queue()
+        self._reconnect_task: asyncio.Task[None] | None = None
+        self._command_worker_task: asyncio.Task[None] | None = None
         self._last_activity = datetime.now(UTC)
-        self._last_notification_time = None
-        self._reconnect_attempts = 0
+        self._last_notification_time: datetime | None = None
+        self._reconnect_delay: float = RECONNECT_DELAY
         self._shutdown = False
         self.on_connect: Callable[[], None] | None = None
 
     @property
-    def is_connected(self):
+    def is_connected(self) -> bool:
         return self._connected
 
-    def get_state(self):
+    def get_state(self) -> DeviceState:
         return self._state
 
-    def get_metadata(self):
+    def get_metadata(self) -> DeviceMetadata:
         return self._metadata
 
-    def subscribe(self, cb):
+    def subscribe(self, cb: Callable[[DeviceState], None]) -> Callable[[], None]:
+        """Register a callback for state changes. Returns an unsubscribe function."""
         self._subscribers.append(cb)
 
-        def unsub():
+        def unsub() -> None:
             if cb in self._subscribers:
                 self._subscribers.remove(cb)
 
         return unsub
 
-    def reset_activity_timer(self):
+    def reset_activity_timer(self) -> None:
         self._last_activity = datetime.now(UTC)
 
-    async def connect(self):
-        """Establish a BLE connection. Cleans up partial state on failure."""
+    async def _resolve_ble_device(self) -> BLEDevice:
+        """Obtain a BLEDevice for the configured address, or scan for one.
+
+        Returns the cached device if still valid, otherwise performs
+        a fresh lookup via BleakScanner.
+        """
+        if self._address:
+            device = await BleakScanner.find_device_by_address(self._address, timeout=10.0)
+            if device is None:
+                raise RuntimeError(f"BedJet at {self._address} not found")
+            self._ble_device = device
+            return device
+
+        devs = await BleakScanner.discover(timeout=10.0)
+        for d in devs:
+            if d.name and "bedjet" in d.name.lower():
+                self._address = d.address
+                self._metadata.address = d.address
+                self._ble_device = d
+                return d
+            if d.metadata.get("uuids"):
+                for u in d.metadata["uuids"]:
+                    if u.lower() in (BEDJET3_SERVICE_UUID.lower(), BEDJET_V2_SERVICE_UUID.lower()):
+                        self._address = d.address
+                        self._metadata.address = d.address
+                        self._ble_device = d
+                        return d
+        raise RuntimeError("No BedJet found during scan")
+
+    def _on_disconnect(self, client: BleakClient) -> None:
+        """Callback passed to establish_connection; fires on unexpected disconnect."""
+        logger.warning("BLE device disconnected unexpectedly")
+        self._connected = False
+
+    async def connect(self) -> None:
+        """Establish a BLE connection via establish_connection.
+
+        Uses ``BleakClientWithServiceCache`` for GATT service caching
+        and automatic retry with backoff. Cleans up partial state on
+        post-connection failures (e.g. start_notify).
+        """
         if self._connected:
             return
-        from bleak import BleakClient
 
-        if not self._address:
-            self._address = await self._scan_for_device()
-            self._metadata.address = self._address
-        client = BleakClient(self._address)
+        device = await self._resolve_ble_device()
+        name = self._metadata.name or device.name or device.address
+
+        client = await establish_connection(
+            BleakClientWithServiceCache,
+            device,
+            name=name,
+            disconnected_callback=self._on_disconnect,
+            max_attempts=4,
+        )
         try:
-            await client.connect()
             v2s = any(
                 ch.uuid.lower() == BEDJET_V2_STATUS_UUID.lower()
                 for svc in client.services
@@ -118,7 +173,6 @@ class BleManager:
             raise
         self._client = client
         self._connected = True
-        self._reconnect_attempts = 0
         self.reset_activity_timer()
         if self._model == "v3":
             await self._perform_v3_initial_reads()
@@ -367,47 +421,34 @@ class BleManager:
         )
         await self._enqueue_command(protocol_v2.wrap_command(inner))
 
-    async def _scan_for_device(self):
-        from bleak import BleakScanner
-
-        devs = await BleakScanner.discover(timeout=10.0)
-        for d in devs:
-            if d.name and "bedjet" in d.name.lower():
-                return d.address
-            if d.metadata.get("uuids"):
-                for u in d.metadata["uuids"]:
-                    if u.lower() in (BEDJET3_SERVICE_UUID.lower(), BEDJET_V2_SERVICE_UUID.lower()):
-                        return d.address
-        raise RuntimeError("No BedJet found")
-
-    def _compute_reconnect_delay(self, att):
-        return min(RECONNECT_INITIAL_DELAY * (2**att), RECONNECT_MAX_DELAY)
-
-    async def start_auto_reconnect(self):
+    async def start_auto_reconnect(self) -> None:
+        """Start the background reconnection loop if not already running."""
         if self._reconnect_task and not self._reconnect_task.done():
             return
         self._reconnect_task = asyncio.create_task(self._reconnect_loop())
 
-    async def _reconnect_loop(self):
+    async def _reconnect_loop(self) -> None:
+        """Continuously attempt reconnection when disconnected.
+
+        ``establish_connection`` handles per-attempt retry internally.
+        This outer loop covers reconnection after an unexpected
+        disconnect, using a fixed delay between rounds.
+        """
         while not self._shutdown:
             if self._connected:
                 await asyncio.sleep(1)
                 continue
-            d = self._compute_reconnect_delay(self._reconnect_attempts)
-            await asyncio.sleep(d)
+            await asyncio.sleep(self._reconnect_delay)
             try:
                 await self.connect()
-                logger.info("BLE reconnection successful (attempt %d)", self._reconnect_attempts + 1)
+                logger.info("BLE reconnection successful")
                 self._notify_subscribers(self._state)
                 if self.on_connect:
                     self.on_connect()
+            except BleakNotFoundError:
+                logger.warning("BLE reconnect failed: device not found")
             except Exception as exc:
-                self._reconnect_attempts += 1
-                logger.warning(
-                    "BLE connection attempt %d failed: %s",
-                    self._reconnect_attempts,
-                    exc,
-                )
+                logger.warning("BLE reconnect failed: %s", exc)
 
     async def check_stale_data(self):
         if self._last_notification_time is None:

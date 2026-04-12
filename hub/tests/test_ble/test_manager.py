@@ -4,8 +4,9 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from bleak.backends.device import BLEDevice
 
-from bedjet_hub.ble.const import OperatingMode
+from bedjet_hub.ble.const import BEDJET3_STATUS_UUID, OperatingMode
 from bedjet_hub.ble.manager import BleManager
 from bedjet_hub.ble.state import DeviceState
 
@@ -13,6 +14,12 @@ from bedjet_hub.ble.state import DeviceState
 @pytest.fixture
 def mgr():
     return BleManager(address="AA:BB")
+
+
+@pytest.fixture
+def ble_device() -> BLEDevice:
+    """A minimal BLEDevice for use with establish_connection."""
+    return BLEDevice(address="AA:BB", name="BedJet", details={})
 
 
 def test_init(mgr):
@@ -65,44 +72,85 @@ async def test_error(mgr):
     await mgr._process_command_queue_once()
 
 
-def test_backoff(mgr):
-    ds = [mgr._compute_reconnect_delay(i) for i in range(6)]
-    assert ds[0] == 2
-    assert ds[1] == 4
-    assert ds[4] == 30
-    assert ds[5] == 30
-
-
 def test_activity(mgr):
     mgr._last_activity = datetime.now(UTC) - timedelta(seconds=59)
     mgr.reset_activity_timer()
     assert (datetime.now(UTC) - mgr._last_activity).total_seconds() < 1
 
 
-async def test_connect_cleans_up_client_on_failure(mgr):
-    """connect() must reset _client to None when BleakClient.connect() raises,
-    so the next retry starts with a clean slate."""
-    mock_client = AsyncMock()
-    mock_client.connect = AsyncMock(side_effect=OSError("BLE timeout"))
+# ---------------------------------------------------------------------------
+# connect() via establish_connection + BleakClientWithServiceCache
+# ---------------------------------------------------------------------------
 
-    with patch("bleak.BleakClient", return_value=mock_client):
-        with pytest.raises(OSError, match="BLE timeout"):
+
+async def test_connect_calls_establish_connection(mgr, ble_device):
+    """connect() must delegate to establish_connection with
+    BleakClientWithServiceCache, not raw BleakClient."""
+    mock_client = AsyncMock()
+    mock_client.services = []
+    mock_client.start_notify = AsyncMock()
+
+    with (
+        patch("bedjet_hub.ble.manager.establish_connection", new_callable=AsyncMock, return_value=mock_client) as mock_ec,
+        patch.object(mgr, "_resolve_ble_device", new_callable=AsyncMock, return_value=ble_device),
+        patch.object(mgr, "_wait_for_ready", new_callable=AsyncMock),
+    ):
+        await mgr.connect()
+
+    mock_ec.assert_awaited_once()
+    call_args = mock_ec.call_args
+    from bleak_retry_connector import BleakClientWithServiceCache
+
+    assert call_args[0][0] is BleakClientWithServiceCache
+    assert call_args[0][1] is ble_device
+
+
+async def test_connect_passes_disconnected_callback(mgr, ble_device):
+    """connect() must pass a disconnected_callback to establish_connection
+    so the manager knows when the link drops."""
+    mock_client = AsyncMock()
+    mock_client.services = []
+    mock_client.start_notify = AsyncMock()
+
+    with (
+        patch("bedjet_hub.ble.manager.establish_connection", new_callable=AsyncMock, return_value=mock_client) as mock_ec,
+        patch.object(mgr, "_resolve_ble_device", new_callable=AsyncMock, return_value=ble_device),
+        patch.object(mgr, "_wait_for_ready", new_callable=AsyncMock),
+    ):
+        await mgr.connect()
+
+    kwargs = mock_ec.call_args.kwargs
+    assert "disconnected_callback" in kwargs
+    assert callable(kwargs["disconnected_callback"])
+
+
+async def test_connect_cleans_up_on_establish_connection_failure(mgr, ble_device):
+    """When establish_connection raises, _client must stay None."""
+    from bleak_retry_connector import BleakNotFoundError
+
+    with (
+        patch("bedjet_hub.ble.manager.establish_connection", new_callable=AsyncMock, side_effect=BleakNotFoundError()),
+        patch.object(mgr, "_resolve_ble_device", new_callable=AsyncMock, return_value=ble_device),
+    ):
+        with pytest.raises(BleakNotFoundError):
             await mgr.connect()
 
     assert mgr._client is None
     assert not mgr.is_connected
 
 
-async def test_connect_cleans_up_client_on_notify_failure(mgr):
-    """If start_notify() fails after a successful low-level connect,
+async def test_connect_cleans_up_client_on_notify_failure(mgr, ble_device):
+    """If start_notify() fails after establish_connection succeeds,
     the client should be disconnected and cleaned up."""
     mock_client = AsyncMock()
-    mock_client.connect = AsyncMock()
     mock_client.services = []
     mock_client.start_notify = AsyncMock(side_effect=OSError("notify failed"))
     mock_client.disconnect = AsyncMock()
 
-    with patch("bleak.BleakClient", return_value=mock_client):
+    with (
+        patch("bedjet_hub.ble.manager.establish_connection", new_callable=AsyncMock, return_value=mock_client),
+        patch.object(mgr, "_resolve_ble_device", new_callable=AsyncMock, return_value=ble_device),
+    ):
         with pytest.raises(OSError, match="notify failed"):
             await mgr.connect()
 
@@ -111,8 +159,103 @@ async def test_connect_cleans_up_client_on_notify_failure(mgr):
     assert not mgr.is_connected
 
 
-async def test_reconnect_loop_logs_errors(mgr, caplog):
-    """_reconnect_loop must log the exception from each failed connect() attempt."""
+async def test_disconnected_callback_clears_connected(mgr, ble_device):
+    """The disconnected_callback passed to establish_connection must set
+    _connected = False so the reconnect loop re-enters."""
+    mock_client = AsyncMock()
+    mock_client.services = []
+    mock_client.start_notify = AsyncMock()
+
+    captured_cb = None
+
+    async def capture_establish_connection(*args, **kwargs):
+        nonlocal captured_cb
+        captured_cb = kwargs.get("disconnected_callback")
+        return mock_client
+
+    with (
+        patch("bedjet_hub.ble.manager.establish_connection", side_effect=capture_establish_connection),
+        patch.object(mgr, "_resolve_ble_device", new_callable=AsyncMock, return_value=ble_device),
+        patch.object(mgr, "_wait_for_ready", new_callable=AsyncMock),
+    ):
+        await mgr.connect()
+
+    assert mgr.is_connected
+    assert captured_cb is not None
+
+    captured_cb(mock_client)
+    assert not mgr.is_connected
+
+
+# ---------------------------------------------------------------------------
+# _resolve_ble_device: scan returning BLEDevice
+# ---------------------------------------------------------------------------
+
+
+async def test_resolve_ble_device_from_address(mgr):
+    """When address is set, _resolve_ble_device must use
+    BleakScanner.find_device_by_address to get a BLEDevice."""
+    expected = BLEDevice(address="AA:BB", name="BedJet", details={})
+
+    with patch("bedjet_hub.ble.manager.BleakScanner") as mock_scanner_cls:
+        mock_scanner_cls.find_device_by_address = AsyncMock(return_value=expected)
+        result = await mgr._resolve_ble_device()
+
+    assert result is expected
+
+
+async def test_resolve_ble_device_scan_when_no_address():
+    """When no address is configured, _resolve_ble_device must scan
+    and return the first BLEDevice whose name contains 'bedjet'."""
+    mgr = BleManager(address="")
+    bedjet_dev = BLEDevice(address="CC:DD", name="BEDJET3", details={})
+
+    with patch("bedjet_hub.ble.manager.BleakScanner") as mock_scanner_cls:
+        mock_scanner_cls.discover = AsyncMock(return_value=[bedjet_dev])
+        result = await mgr._resolve_ble_device()
+
+    assert result is bedjet_dev
+    assert mgr._address == "CC:DD"
+
+
+async def test_resolve_ble_device_raises_when_not_found(mgr):
+    """_resolve_ble_device must raise RuntimeError when the device
+    cannot be found by address."""
+    with patch("bedjet_hub.ble.manager.BleakScanner") as mock_scanner_cls:
+        mock_scanner_cls.find_device_by_address = AsyncMock(return_value=None)
+        with pytest.raises(RuntimeError, match="not found"):
+            await mgr._resolve_ble_device()
+
+
+# ---------------------------------------------------------------------------
+# Typed exception handling in reconnect loop
+# ---------------------------------------------------------------------------
+
+
+async def test_reconnect_loop_logs_not_found_error(mgr, caplog):
+    """_reconnect_loop must log BleakNotFoundError distinctly."""
+    from bleak_retry_connector import BleakNotFoundError
+
+    call_count = 0
+
+    async def failing_connect():
+        nonlocal call_count
+        call_count += 1
+        if call_count >= 2:
+            mgr._shutdown = True
+        raise BleakNotFoundError()
+
+    mgr.connect = failing_connect
+    mgr._reconnect_delay = 0
+
+    with caplog.at_level(logging.WARNING, logger="bedjet_hub.ble.manager"):
+        await mgr._reconnect_loop()
+
+    assert any("not found" in r.message.lower() for r in caplog.records)
+
+
+async def test_reconnect_loop_logs_generic_errors(mgr, caplog):
+    """_reconnect_loop must still log generic exceptions."""
     call_count = 0
 
     async def failing_connect():
@@ -123,7 +266,7 @@ async def test_reconnect_loop_logs_errors(mgr, caplog):
         raise ConnectionError("adapter busy")
 
     mgr.connect = failing_connect
-    mgr._compute_reconnect_delay = lambda att: 0
+    mgr._reconnect_delay = 0
 
     with caplog.at_level(logging.WARNING, logger="bedjet_hub.ble.manager"):
         await mgr._reconnect_loop()
@@ -137,7 +280,7 @@ async def test_reconnect_loop_succeeds_after_failures(mgr):
     notified = []
 
     mgr.subscribe(lambda s: notified.append(s))
-    mgr._compute_reconnect_delay = lambda att: 0
+    mgr._reconnect_delay = 0
 
     async def flaky_connect():
         nonlocal call_count
@@ -165,7 +308,7 @@ async def test_reconnect_loop_fires_on_connect_callback(mgr):
     connected_events = []
 
     mgr.on_connect = lambda: connected_events.append(True)
-    mgr._compute_reconnect_delay = lambda att: 0
+    mgr._reconnect_delay = 0
 
     call_count = 0
 
