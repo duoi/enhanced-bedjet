@@ -264,12 +264,12 @@ Common causes:
 
 **Symptom:** Status shows connected, commands do nothing.
 
+**Fix:** This bug was fundamentally patched in Hub v0.2.3 via the `bleak-retry-connector` DBus integration. If you still encounter it due to Linux kernel-level DBus caching issues:
+
 ```bash
 bluetoothctl disconnect <MAC>
 systemctl restart bedjet-hub.service
 ```
-
-Do NOT use `bluetoothctl connect` — the hub must manage the connection natively via Bleak.
 
 ### MCP tools not appearing in Hermes
 

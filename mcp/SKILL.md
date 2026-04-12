@@ -150,17 +150,15 @@ set_device_mode(mode="standby")
 
 ## Quirks and Troubleshooting
 
-### Zombie BLE Connection (Critical)
+### Zombie BLE Connection
 
 **Symptom:** Device status shows "connected" but commands silently do nothing.
 
-**Cause:** Bleak (Python BLE library) can enter a zombie state where `_connected = True` but the OS-level BLE link is dead. Commands are accepted but dropped.
+**Cause:** Previously, the pure `bleak` Python library could enter a zombie state where it thought it was connected but the OS-level BLE link had died. 
 
-**Fix:**
-1. `bluetoothctl disconnect <MAC>` — kill the OS-level BLE link
+**Fix:** This was patched in **Hub v0.2.3** using the `bleak-retry-connector` library (the same DBus cache-manager used by Home Assistant). The hub daemon should now recover automatically. If you somehow still encounter this rare Linux DBus edge-case, the workaround is:
+1. `bluetoothctl disconnect <MAC>` — manually kill the OS-level BLE link
 2. `systemctl restart bedjet-hub.service` — let the hub reconnect natively
-
-**Do NOT** use `bluetoothctl connect` directly. The hub's Bleak client must manage the connection natively. If you `bluetoothctl connect` first, Bleak will fight with the OS for the connection.
 
 ### Temperature Units
 
