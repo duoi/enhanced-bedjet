@@ -32,11 +32,11 @@ The hub is the only BLE client. It owns the device connection, serializes comman
 
 | Component | Technology | Purpose |
 | --- | --- | --- |
-| Hub BLE layer | Python 3.12 + `bleak` | BLE scanning, connection, GATT operations |
+| Hub BLE layer | Python 3.12 + `bleak-retry-connector` | BLE scanning, connection, GATT operations |
 | Hub API | FastAPI + `uvicorn` | REST endpoints + WebSocket for live state |
 | Hub storage | SQLite via `aiosqlite` | Biorhythm programs, preferences, device metadata |
-| Hub scheduler | `asyncio` tasks | Biorhythm step execution, clock sync |
-| Phone app | React Native + Expo | UI client over HTTP + WebSocket |
+| Hub scheduler | `asyncio` tasks | Biorhythm step execution, clock sync, background polling |
+| Phone app | React (Vite) PWA | UI client over HTTP + WebSocket |
 
 ## 4. Hub Server
 
@@ -181,6 +181,8 @@ Program object:
 {
   "id": "uuid",
   "name": "Night Routine",
+  "startTime": "22:00",
+  "days": [0, 1, 2, 3, 4],
   "steps": [
     {
       "mode": "heat",
@@ -288,6 +290,8 @@ SQLite database at a configurable path (default: `data/bedjet.db`).
 | `name` | `TEXT NOT NULL` | Display name |
 | `created_at` | `TEXT NOT NULL` | ISO 8601 |
 | `updated_at` | `TEXT NOT NULL` | ISO 8601 |
+| `start_time_hhmm`| `TEXT` | HH:MM start time |
+| `days` | `TEXT` | JSON array of integers (0=Mon, 6=Sun) |
 
 #### `program_steps` table
 
@@ -352,7 +356,13 @@ When the final step completes:
 2. Delete the `active_sequence` row.
 3. Push state to all WebSocket clients.
 
-#### Hub restart recovery
+#### Active Program Scheduling (Background Polling)
+
+The scheduler also maintains a 20-second background polling loop (`_poll_schedules`).
+1. Gets the current time `HH:MM` and current day of the week (`0=Mon`, `6=Sun`).
+2. Iterates over all programs with a valid `startTime` and `days`.
+3. If `startTime` matches the current minute and today is in `days`, checks if the program is already running.
+4. If not running, it automatically triggers `activate_program`.
 
 On startup, if an `active_sequence` row exists:
 
@@ -388,6 +398,7 @@ Minimal configuration via environment variables or a config file:
 | `HUB_HOST` | `0.0.0.0` | API listen address |
 | `HUB_PORT` | `8265` | API listen port |
 | `DB_PATH` | `data/bedjet.db` | SQLite database path |
+| `CORS_ORIGINS` | `http://localhost:8678,...` | Comma-separated list of allowed origins |
 
 If `BEDJET_ADDRESS` is not set, the hub scans for the first discoverable BedJet device and uses that.
 
