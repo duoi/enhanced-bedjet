@@ -24,6 +24,7 @@ Phone / Tablet                 Raspberry Pi              BedJet
 - **Mode selector** — Heat, Cool, Dry, Turbo, Extended Heat
 - **Fan speed slider** with named presets (Whisper → Turbo)
 - **Biorhythm programs** — multi-step temperature sequences with scheduling, day-of-week selection, and duration/until timing
+- **Telemetry tracking** — automatically logs mode, temperature, and fan speed to a local SQLite database every 5 minutes
 - **Settings** — LED ring, mute, clock sync, memory/biorhythm preset activation
 - **Live state** via WebSocket — temperature, fan, mode, runtime countdown
 - **Optimistic UI** — instant feedback with convergence checks against the device
