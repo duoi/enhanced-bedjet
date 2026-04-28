@@ -15,6 +15,25 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+
+async def telemetry_loop(ble: BleManager, db: Database):
+    import asyncio
+    from datetime import datetime, UTC
+    while True:
+        try:
+            if ble.is_connected():
+                state = await ble.get_state()
+                if state:
+                    await db.add_telemetry(
+                        timestamp=datetime.now(UTC).isoformat(),
+                        mode=state.get("mode", "unknown"),
+                        temp_c=state.get("temperatureC"),
+                        fan=state.get("fanSpeedPercent")
+                    )
+        except Exception as e:
+            logger.error(f"Telemetry error: {e}")
+        await asyncio.sleep(300)  # 5 minutes
+
 async def try_initial_connect(ble: BleManager) -> bool:
     """Attempt initial BLE connection.
 
@@ -47,6 +66,8 @@ async def main():
 
     app = create_app(ble_manager=ble, db=db)
     app.state.scheduler = sched
+    asyncio.create_task(telemetry_loop(ble, db))
+
 
     # mDNS
     zc = AsyncZeroconf(ip_version=IPVersion.V4Only)

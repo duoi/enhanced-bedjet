@@ -29,6 +29,13 @@ CREATE TABLE IF NOT EXISTS program_steps(
     FOREIGN KEY(program_id) REFERENCES programs(id) ON DELETE CASCADE
 );
 CREATE TABLE IF NOT EXISTS preferences(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+
+CREATE TABLE IF NOT EXISTS telemetry(
+    timestamp TEXT PRIMARY KEY,
+    mode TEXT,
+    temperature_c REAL,
+    fan_speed_percent INTEGER
+);
 CREATE TABLE IF NOT EXISTS active_sequence(
     id INTEGER PRIMARY KEY CHECK(id=1),
     program_id TEXT NOT NULL,
@@ -202,3 +209,14 @@ class Database:
     async def delete_active_sequence(self):
         await self._db.execute("DELETE FROM active_sequence")
         await self._db.commit()
+
+    async def add_telemetry(self, timestamp: str, mode: str, temp_c: float, fan: int):
+        await self._db.execute(
+            "INSERT INTO telemetry(timestamp,mode,temperature_c,fan_speed_percent)VALUES(?,?,?,?)",
+            (timestamp, mode, temp_c, fan)
+        )
+        await self._db.commit()
+
+    async def get_telemetry(self, limit: int = 100):
+        c = await self._db.execute("SELECT * FROM telemetry ORDER BY timestamp DESC LIMIT ?", (limit,))
+        return [dict(r) for r in await c.fetchall()]
