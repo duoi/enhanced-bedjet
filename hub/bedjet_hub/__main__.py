@@ -21,7 +21,7 @@ async def telemetry_loop(ble: BleManager, db: Database):
     from datetime import datetime, UTC
     while True:
         try:
-            if ble.is_connected():
+            if ble.is_connected:
                 state = await ble.get_state()
                 if state:
                     await db.add_telemetry(
