@@ -8,7 +8,7 @@ A self-hosted BLE-to-HTTP bridge and mobile web app for controlling [BedJet](htt
 
 The BedJet's native app relies on direct Bluetooth pairing with a phone, limiting control to one device within BLE range. This project replaces that constraint with a two-part architecture:
 
-- **Hub** (`hub/`) — A Python daemon that maintains the BLE connection to the BedJet and exposes a REST + WebSocket API over your LAN. Runs on a Raspberry Pi or any Linux host with a Bluetooth adapter.
+- **Hub** (`hub/`) — Two Python daemons: one that maintains the BLE connection to the BedJet (communicating over UNIX domain sockets), and a web server that exposes a REST + WebSocket API over your LAN. Runs on a Raspberry Pi or any Linux host with a Bluetooth adapter.
 - **App** (`app/`) — A React (Vite) progressive web app that connects to the hub. Installable on any phone's home screen as a PWA.
 
 ```
@@ -54,6 +54,10 @@ pip install -e .
 # Optional: set the BedJet's BLE MAC address (otherwise auto-scans)
 export BEDJET_ADDRESS="AA:BB:CC:DD:EE:FF"
 
+# Start the BLE connection worker
+python -m bedjet_hub.ble_daemon &
+
+# Start the Web API / Hub
 python -m bedjet_hub
 ```
 
@@ -67,7 +71,7 @@ The hub starts on `0.0.0.0:8265` by default. Configuration is via environment va
 | `DB_PATH` | `data/bedjet.db` | SQLite database path |
 | `CORS_ORIGINS` | `localhost:8678` | Comma-separated list of allowed Origins for the UI (e.g., `http://192.168.1.50:8678`). Replace with your IP/Domain for security. |
 
-For production deployment, see `hub/bedjet-hub.service` for a systemd unit template.
+For production deployment, use the provided systemd templates (`hub/bedjet-ble.service` and `hub/bedjet-hub.service`). The decoupled services ensure that restarting the API does not drop the physical Bluetooth connection.
 
 ### App
 
@@ -103,13 +107,16 @@ On first launch, the app probes for a proxy connection. If unavailable, it shows
 │   │   ├── utils.js        # Temp conversion, mode constants
 │   │   └── timeUtils.js    # Duration/time formatting
 │   └── public/             # PWA manifest, icons, service worker
-├── hub/                    # Python hub daemon
+├── hub/                    # Python hub daemons
 │   ├── bedjet_hub/
 │   │   ├── api/            # FastAPI routes + WebSocket
-│   │   ├── ble/            # BLE protocol (V2 + V3), manager
+│   │   ├── ble/            # BLE protocol (V2 + V3), IPC server/client
+│   │   ├── ble_daemon.py   # Headless Bluetooth worker process
 │   │   ├── db/             # SQLite (programs, preferences)
 │   │   └── scheduler/      # Biorhythm program executor
 │   ├── tests/              # pytest test suite
+│   ├── bedjet-ble.service  # systemd service for Bluetooth connection
+│   ├── bedjet-hub.service  # systemd service for Web API
 │   └── pyproject.toml
 ├── mcp/                    # AI agent integration
 │   ├── server.py           # MCP stdio proxy (zero dependencies)

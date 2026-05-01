@@ -86,7 +86,7 @@ async def test_resume(sched):
 
 async def test_polling_activates_scheduled_program(sched):
     s, db, ble = sched
-    
+
     # Create a scheduled program for 22:00 on Wednesday (weekday 2)
     p = await db.create_program(
         name="Scheduled",
@@ -94,13 +94,13 @@ async def test_polling_activates_scheduled_program(sched):
         start_time_hhmm="22:00",
         days=[0, 2, 4]  # Mon, Wed, Fri
     )
-    
+
     # Mock datetime to Wed 2026-04-15 22:00:00 UTC
     mock_now_match = datetime(2026, 4, 15, 22, 0, 0, tzinfo=UTC)
-    
+
     # Run the poll method (which we will implement)
     await s._poll_schedules(now=mock_now_match)
-    
+
     # Should have started the program
     ble.set_mode.assert_called_with(OperatingMode.HEAT)
     a = await db.get_active_sequence()

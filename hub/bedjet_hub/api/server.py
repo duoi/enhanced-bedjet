@@ -17,7 +17,7 @@ def create_app(ble_manager=None, db=None):
     """
     app = FastAPI(title="BedJet Hub", version="0.2.1")
     cfg = Config()
-    
+
     if "*" in cfg.cors_origins:
         app.add_middleware(
             CORSMiddleware,

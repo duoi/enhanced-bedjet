@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from bleak.backends.device import BLEDevice
 
-from bedjet_hub.ble.const import BEDJET3_STATUS_UUID, OperatingMode
+from bedjet_hub.ble.const import OperatingMode
 from bedjet_hub.ble.manager import BleManager
 from bedjet_hub.ble.state import DeviceState
 

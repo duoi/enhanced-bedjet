@@ -1,0 +1,18 @@
+[Unit]
+Description=BedJet Hub Server
+Requires=bedjet-ble.service
+After=network.target bluetooth.target bedjet-ble.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/bedjet/hub
+Environment=PATH=/opt/bedjet/hub/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+EnvironmentFile=-/opt/bedjet/hub/.env
+ExecStartPre=/bin/mkdir -p /opt/bedjet/hub/data
+ExecStart=/opt/bedjet/hub/.venv/bin/python -m bedjet_hub
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

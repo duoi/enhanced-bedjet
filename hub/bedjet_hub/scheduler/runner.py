@@ -141,31 +141,31 @@ class Scheduler:
     async def _poll_schedules(self, now=None):
         if now is None:
             now = datetime.now()
-            
+
         current_minute = now.strftime("%H:%M")
-        
+
         if self._last_polled_minute == current_minute:
             return
-            
+
         weekday = now.weekday()
         programs = await self._db.list_programs()
-        
+
         for p in programs:
             if not p.get("startTime") or not p.get("days"):
                 continue
-                
+
             if p["startTime"] == current_minute and weekday in p["days"]:
                 active = await self._db.get_active_sequence()
                 if active and active["program_id"] == p["id"]:
                     continue
-                    
+
                 logger.info("Schedule matched: Activating program %s", p["name"])
                 if self._timer_task:
                     self._timer_task.cancel()
                     self._timer_task = None
-                    
+
                 self._last_polled_minute = current_minute
-                
+
                 # activate_program expects a UTC aware datetime
                 st = now.astimezone(UTC) if now.tzinfo else datetime.now(UTC)
                 try:

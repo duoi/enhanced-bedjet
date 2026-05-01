@@ -98,7 +98,7 @@ def test_create_with_schedule(client):
     assert r.status_code == 200
     p = r.json()
     assert p["name"] == "Scheduled"
-    
+
     r2 = client.get(f"/api/programs/{p['id']}")
     assert r2.status_code == 200
     p2 = r2.json()

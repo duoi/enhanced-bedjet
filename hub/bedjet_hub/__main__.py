@@ -6,7 +6,7 @@ from zeroconf import IPVersion, ServiceInfo
 from zeroconf.asyncio import AsyncZeroconf
 
 from .api.server import create_app
-from .ble.manager import BleManager
+from .ble.ipc_client import BleProxyClient
 from .config import Config
 from .db.database import Database
 from .scheduler.runner import Scheduler
@@ -16,53 +16,44 @@ logger = logging.getLogger(__name__)
 
 
 
-async def telemetry_loop(ble: BleManager, db: Database):
+async def telemetry_loop(ble: BleProxyClient, db: Database):
     import asyncio
-    from datetime import datetime, UTC
+    from datetime import UTC, datetime
     while True:
         try:
-            if ble.is_connected:
-                state = await ble.get_state()
+            if getattr(ble, 'is_connected', False):
+                state = ble.get_state() if callable(getattr(ble, 'get_state', None)) else getattr(
+                    ble, 'get_state', None)
                 if state:
-                    await db.add_telemetry(
-                        timestamp=datetime.now(UTC).isoformat(),
-                        mode=state.get("mode", "unknown"),
-                        temp_c=state.get("temperatureC"),
-                        fan=state.get("fanSpeedPercent")
-                    )
+                    mode_str = str(getattr(state, "mode", "unknown")).lower()
+                    if mode_str not in ["0", "standby", "off"]:
+                        await db.add_telemetry(
+                            timestamp=datetime.now(UTC).isoformat(),
+                            mode=getattr(state, "mode", "unknown"),
+                            temp_c=getattr(state, "current_temperature_c", getattr(state, "temperatureC", 0.0)),
+                            fan=getattr(state, "fan_speed_percent", getattr(state, "fanSpeedPercent", 0))
+                        )
         except Exception as e:
-            logger.error(f"Telemetry error: {e}")
+            import traceback
+            logger.error(f"Telemetry error: {e}\n{traceback.format_exc()}")
         await asyncio.sleep(300)  # 5 minutes
 
-async def try_initial_connect(ble: BleManager) -> bool:
-    """Attempt initial BLE connection.
+async def try_initial_connect(ble):
+    pass
 
-    ``establish_connection`` (called inside ``ble.connect()``) handles
-    retry with backoff internally. This wrapper just catches failures
-    so the hub can fall back to the auto-reconnect loop.
-
-    Returns True on success, False on failure.
-    """
-    try:
-        await ble.connect()
-        return True
-    except Exception as exc:
-        logger.warning("Initial BLE connection failed: %s", exc)
-        return False
 
 
 async def main():
     cfg = Config()
     db = Database(cfg.db_path)
     await db.initialize()
-    ble = BleManager(address=cfg.bedjet_address)
-    connected = await try_initial_connect(ble)
-    await ble.start_auto_reconnect()
+
+    # Initialize the Proxy Client
+    ble = BleProxyClient()
+    await ble.connect()
+
     sched = Scheduler(ble, db)
-    if connected:
-        await sched.start()
-    else:
-        ble.on_connect = lambda: asyncio.ensure_future(sched.start())
+    await sched.start()
 
     app = create_app(ble_manager=ble, db=db)
     app.state.scheduler = sched
