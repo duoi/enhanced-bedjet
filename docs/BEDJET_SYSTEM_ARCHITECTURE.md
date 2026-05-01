@@ -40,31 +40,32 @@ The hub is the only BLE client. It owns the device connection, serializes comman
 
 ## 4. Hub Server
 
-### 4.1 Process Model
+### 4.1 Process Model (Decoupled IPC)
 
-The hub runs as a single `asyncio` process with three concurrent subsystems:
+The hub system consists of two separate processes communicating over a UNIX Domain Socket (UDS) located at `/run/bedjet/bedjet_ble.sock`.
 
-1. **BLE manager**: maintains the device connection, subscribes to notifications, executes commands.
-2. **API server**: serves REST and WebSocket endpoints for phone clients.
-3. **Scheduler**: manages active biorhythm sequence execution.
+1. **BLE Worker (`ble_daemon.py`)**: A lightweight background service whose *only* job is maintaining the physical BLE connection using `bleak`. It binds to the UDS, listens for JSON commands, and broadcasts state updates.
+2. **API Server & Scheduler (`bedjet_hub`)**: The FastAPI web server, WebSocket handler, and biorhythm scheduler. This process connects to the BLE Worker over the UDS via a `BleProxyClient`.
 
-All three share the same event loop. The BLE manager is the single owner of the device connection. The API server and scheduler submit commands to the BLE manager through an internal async command queue.
+**Why Decouple?**
+Because `bleak` and the OS Bluetooth stack (`bluez`) are tightly coupled, forcefully restarting a monolithic Python web server often orphans the Bluetooth MAC address, creating a "zombie socket" that requires manual unbinding (`bluetoothctl disconnect`). By decoupling, the API server can be safely restarted, updated, or crashed without ever dropping the physical Bluetooth connection to the BedJet.
 
-### 4.2 BLE Manager
+### 4.2 BLE Worker & Proxy Client
 
-Implements the protocol defined in `BEDJET_BLE_API_REFERENCE.md`.
+Implements the protocol defined in `BEDJET_BLE_API_REFERENCE.md`, but split across the IPC bridge.
 
-Responsibilities:
+Responsibilities of the BLE Worker:
 
-- Scan for BedJet devices on startup.
-- Connect to the configured device.
-- Subscribe to status notifications and maintain the current normalized device state in memory.
-- Apply jitter suppression per section `10.8` of the protocol spec.
-- Expose an internal async interface for submitting commands (used by the API server and scheduler).
-- Serialize all BLE writes through a command queue.
-- Reconnect automatically on unexpected disconnect with exponential backoff (initial delay `2` seconds, max delay `30` seconds).
-- Sync the device clock on every successful connect.
-- Detect stale data after `60` seconds without a notification and attempt reconnect.
+- Maintain the physical connection and auto-reconnect logic.
+- Execute commands received over UDS.
+- Broadcast status notifications to all connected UDS clients.
+
+Responsibilities of the Proxy Client (in the Hub):
+
+- Perfectly mimic the `BleManager` interface (`get_state()`, `set_temperature()`, etc.).
+- Maintain an `asyncio` connection to the UDS socket.
+- Handle startup race conditions with exponential backoff.
+- Immediately cancel pending HTTP command futures if the UDS connection drops, preventing FastAPI routes from hanging.
 
 Internal interface:
 
@@ -380,13 +381,17 @@ When `POST /api/programs/stop` is called:
 3. Do not change the device mode (the user may want to keep the current state).
 
 ### 4.6 Hub Startup Sequence
+### 4.6 Hub Startup Sequence
+**BLE Worker (`bedjet-ble.service`):**
+1. Start the BLE manager.
+2. Bind to `/run/bedjet/bedjet_ble.sock`.
+3. Connect to the device and sync the clock.
 
-1. Initialize SQLite database and run migrations if needed.
-2. Start the BLE manager.
-3. Scan for the BedJet device. If not found, retry with exponential backoff.
-4. Connect to the device and sync the clock.
-5. Check for an `active_sequence` row and resume if present.
-6. Start the FastAPI server.
+**API Server (`bedjet-hub.service`):**
+1. Connect to the UDS socket via `BleProxyClient` (exponential backoff if socket isn't ready).
+2. Initialize SQLite database and run migrations if needed.
+3. Check for an `active_sequence` row and resume if present.
+4. Start the FastAPI server.
 
 ### 4.7 Hub Configuration
 
@@ -520,12 +525,15 @@ bedjet-app/
 │   ├── bedjet_hub/
 │   │   ├── __init__.py
 │   │   ├── __main__.py
+│   │   ├── ble_daemon.py
 │   │   ├── ble/
 │   │   │   ├── __init__.py
 │   │   │   ├── manager.py
 │   │   │   ├── protocol_v3.py
 │   │   │   ├── protocol_v2.py
 │   │   │   ├── state.py
+│   │   │   ├── ipc_server.py
+│   │   │   ├── ipc_client.py
 │   │   │   └── const.py
 │   │   ├── api/
 │   │   │   ├── __init__.py

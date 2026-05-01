@@ -107,19 +107,21 @@ If the device status shows connection info, it's working. Stop the manual run wi
 
 ### Hub Service
 
-The file is at `/opt/bedjet/hub/hub/bedjet-hub.service`. Install it:
+The files are at `/opt/bedjet/hub/bedjet-ble.service` and `/opt/bedjet/hub/bedjet-hub.service`. Install them:
 
 ```bash
-cp /opt/bedjet/hub/hub/bedjet-hub.service /etc/systemd/system/
+cp /opt/bedjet/hub/bedjet-ble.service /etc/systemd/system/
+cp /opt/bedjet/hub/bedjet-hub.service /etc/systemd/system/
 systemctl daemon-reload
-systemctl enable bedjet-hub.service
+systemctl enable bedjet-ble.service bedjet-hub.service
+systemctl start bedjet-ble.service
 systemctl start bedjet-hub.service
 ```
 
 Verify:
 ```bash
-systemctl status bedjet-hub.service
-# Should show "active (running)"
+systemctl status bedjet-ble.service bedjet-hub.service
+# Both should show "active (running)"
 curl http://localhost:8265/api/device
 ```
 
@@ -262,12 +264,13 @@ Common causes:
 
 ### Zombie BLE connection
 
-**Symptom:** Status shows connected, commands do nothing.
+**Symptom:** Status shows connected, commands do nothing, or hub fails to start with "Address already in use".
 
-**Fix:** This bug was fundamentally patched in Hub v0.2.3 via the `bleak-retry-connector` DBus integration. If you still encounter it due to Linux kernel-level DBus caching issues:
+**Fix:** This bug was fundamentally patched in Hub v0.3.0 by decoupling the Bluetooth connection into a standalone background worker (`bedjet-ble.service`). If you still encounter it because you are running the daemon manually in a terminal and forcefully killed it:
 
 ```bash
 bluetoothctl disconnect <MAC>
+systemctl restart bedjet-ble.service
 systemctl restart bedjet-hub.service
 ```
 
@@ -292,10 +295,11 @@ The UI probes for the hub on load. If it shows the setup screen:
 ├── .venv/                        # Python virtual environment
 ├── hub/
 │   ├── bedjet_hub/
-│   │   ├── __main__.py           # Entry point (python -m bedjet_hub)
+│   │   ├── __main__.py           # Web API entry point (python -m bedjet_hub)
+│   │   ├── ble_daemon.py         # BLE worker entry point
 │   │   ├── config.py             # Environment variable config
 │   │   ├── api/                  # FastAPI routes + WebSocket
-│   │   ├── ble/                  # BLE protocol V2/V3, connection manager
+│   │   ├── ble/                  # BLE protocol V2/V3, connection manager, IPC
 │   │   ├── db/                   # SQLite database (programs, prefs)
 │   │   └── scheduler/            # Biorhythm program executor
 │   ├── tests/                    # pytest suite
@@ -307,7 +311,8 @@ The UI probes for the hub on load. If it shows the setup screen:
 ├── mcp/
 │   ├── server.py                 # MCP stdio proxy (zero deps)
 │   └── SKILL.md                  # Hermes Agent skill definition
-├── bedjet-hub.service            # systemd unit for hub
+├── bedjet-ble.service            # systemd unit for bluetooth worker
+├── bedjet-hub.service            # systemd unit for web API
 └── AGENTS.md                     # This file
 ```
 
