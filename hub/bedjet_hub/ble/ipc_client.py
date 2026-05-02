@@ -149,7 +149,7 @@ class BleProxyClient:
             # If the daemon dies, start trying to reconnect
             asyncio.create_task(self.connect())
 
-    async def _send_command(self, cmd: str, args: dict = None):
+    async def _send_command(self, cmd: str, args=None):
         if not self._connected:
             raise ConnectionError("Not connected to BLE daemon")
 
@@ -174,7 +174,8 @@ class BleProxyClient:
         """Magic method to forward all missing async methods to the remote daemon."""
         # Only proxy typical bedjet commands
         if name.startswith("set_") or name.startswith("activate_") or name == "sync_clock":
-            async def wrapper(**kwargs):
-                return await self._send_command(name, kwargs)
+            async def wrapper(*args, **kwargs):
+                payload_args = kwargs if kwargs else list(args)
+                return await self._send_command(name, payload_args)
             return wrapper
         raise AttributeError(f"'BleProxyClient' object has no attribute '{name}'")

@@ -88,9 +88,19 @@ class IpcServer:
                     try:
                         func = getattr(self.ble, cmd)
                         if asyncio.iscoroutinefunction(func):
-                            res = await func(**args)
+                            if isinstance(args, list):
+                                res = await func(*args)
+                            elif isinstance(args, dict):
+                                res = await func(**args)
+                            else:
+                                res = await func()
                         else:
-                            res = func(**args)
+                            if isinstance(args, list):
+                                res = func(*args)
+                            elif isinstance(args, dict):
+                                res = func(**args)
+                            else:
+                                res = func()
                         response = {"req_id": req_id, "status": "ok", "error": None, "result": res}
                     except Exception as e:
                         response = {"req_id": req_id, "status": "error", "error": str(e)}
