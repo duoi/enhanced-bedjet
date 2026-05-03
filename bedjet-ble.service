@@ -9,9 +9,11 @@ WorkingDirectory=/opt/bedjet/hub
 Environment=PATH=/opt/bedjet/hub/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 EnvironmentFile=-/opt/bedjet/hub/.env
 RuntimeDirectory=bedjet
+ExecStartPre=-/usr/bin/bluetoothctl disconnect D4:8C:49:B7:11:F2
 ExecStart=/opt/bedjet/hub/.venv/bin/python -m bedjet_hub.ble_daemon
 Restart=always
 RestartSec=3
+TimeoutStopSec=10
 
 [Install]
 WantedBy=multi-user.target

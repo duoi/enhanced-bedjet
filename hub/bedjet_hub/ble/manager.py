@@ -127,6 +127,9 @@ class BleManager:
         """Callback passed to establish_connection; fires on unexpected disconnect."""
         logger.warning("BLE device disconnected unexpectedly")
         self._connected = False
+        import subprocess
+        if self._address:
+            subprocess.run(["bluetoothctl", "disconnect", self._address], capture_output=True)
 
     async def connect(self) -> None:
         """Establish a BLE connection via establish_connection.

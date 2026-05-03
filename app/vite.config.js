@@ -19,8 +19,18 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
-    preview: {
+        preview: {
       allowedHosts: env.ALLOWED_HOSTS ? env.ALLOWED_HOSTS.split(',') : [],
+      proxy: {
+        "/api": {
+          target: "http://localhost:8265",
+          changeOrigin: true,
+        },
+        "/ws": {
+          target: "ws://localhost:8265",
+          ws: true,
+        },
+      },
     },
     test: {
       environment: "jsdom",

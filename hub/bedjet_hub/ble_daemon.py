@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import signal
 
 from bedjet_hub.ble.ipc_server import start_ipc_server
 from bedjet_hub.ble.manager import BleManager
@@ -17,26 +18,40 @@ async def try_initial_connect(ble: BleManager) -> bool:
         return False
 
 async def main():
+    loop = asyncio.get_running_loop()
+    main_task = asyncio.current_task()
+    
+    def signal_handler(sig_name):
+        logger.info(f"Received {sig_name}, cancelling main task...")
+        if main_task:
+            main_task.cancel()
+
+    for sig, name in ((signal.SIGTERM, "SIGTERM"), (signal.SIGINT, "SIGINT")):
+        loop.add_signal_handler(sig, signal_handler, name)
+
     cfg = Config()
     ble = BleManager(address=cfg.bedjet_address)
 
-    # Start the Unix Socket Server *before* doing long BLE waits
     sock_path = "/run/bedjet/bedjet_ble.sock"
     logger.info(f"Starting BLE UDS Server at {sock_path}")
     server, _ = await start_ipc_server(ble, sock_path=sock_path)
 
-    # Try connecting to hardware
     await try_initial_connect(ble)
     await ble.start_auto_reconnect()
 
     try:
         await server.serve_forever()
     except asyncio.CancelledError:
-        pass
+        logger.info("Main task cancelled, beginning shutdown sequence...")
     finally:
         server.close()
         await server.wait_closed()
-        await ble.disconnect()
+        try:
+            await asyncio.wait_for(ble.disconnect(), timeout=5.0)
+        except asyncio.TimeoutError:
+            logger.warning("Timeout while disconnecting BLE, forcing exit.")
+        except Exception as e:
+            logger.error(f"Error during BLE disconnect: {e}")
 
 if __name__ == "__main__":
     asyncio.run(main())
