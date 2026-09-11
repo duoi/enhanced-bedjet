@@ -7,7 +7,7 @@ import pytest
 from bleak.backends.device import BLEDevice
 
 from bedjet_hub.ble import protocol_v3
-from bedjet_hub.ble.const import ButtonCode, OperatingMode
+from bedjet_hub.ble.const import BiodataRequestType, ButtonCode, OperatingMode
 from bedjet_hub.ble.manager import BleManager
 from bedjet_hub.ble.state import DeviceState
 
@@ -499,3 +499,128 @@ async def test_set_runtime_is_the_only_timer_control(mgr):
     await mgr.set_runtime(2, 30)
 
     assert _sent(mgr) == [protocol_v3.encode_set_runtime(2, 30)]
+
+
+# ---------------------------------------------------------------------------
+# Metadata publication
+#
+# The hub caches whatever metadata the daemon pushes at IPC-connect time, so
+# discovering the metadata is not enough on its own: it has to be published when
+# it changes, otherwise a client that attached earlier keeps serving the empty
+# snapshot it received.
+# ---------------------------------------------------------------------------
+
+
+async def test_connect_publishes_metadata_after_the_initial_reads(mgr, ble_device):
+    """Metadata must be published once the handshake has gathered it."""
+    events = []
+
+    async def fake_reads():
+        events.append("reads")
+
+    mock_client = MagicMock()
+    mock_client.services = []
+    mock_client.start_notify = AsyncMock()
+    mgr.subscribe_metadata(lambda meta: events.append("metadata"))
+
+    with (
+        patch("bedjet_hub.ble.manager.establish_connection", new_callable=AsyncMock, return_value=mock_client),
+        patch.object(mgr, "_resolve_ble_device", new_callable=AsyncMock, return_value=ble_device),
+        patch.object(mgr, "_wait_for_ready", new_callable=AsyncMock),
+        patch.object(mgr, "_perform_v3_initial_reads", new=fake_reads),
+    ):
+        await mgr.connect()
+
+    assert events == ["reads", "metadata"]
+
+
+async def test_metadata_subscriber_receives_the_metadata_object(mgr, ble_device):
+    seen = []
+    mock_client = MagicMock()
+    mock_client.services = []
+    mock_client.start_notify = AsyncMock()
+    mgr.subscribe_metadata(seen.append)
+
+    with (
+        patch("bedjet_hub.ble.manager.establish_connection", new_callable=AsyncMock, return_value=mock_client),
+        patch.object(mgr, "_resolve_ble_device", new_callable=AsyncMock, return_value=ble_device),
+        patch.object(mgr, "_wait_for_ready", new_callable=AsyncMock),
+    ):
+        await mgr.connect()
+
+    assert seen
+    assert seen[-1] is mgr.get_metadata()
+
+
+async def test_unsubscribing_stops_metadata_notifications(mgr, ble_device):
+    seen = []
+    mock_client = MagicMock()
+    mock_client.services = []
+    mock_client.start_notify = AsyncMock()
+    unsubscribe = mgr.subscribe_metadata(seen.append)
+    unsubscribe()
+
+    with (
+        patch("bedjet_hub.ble.manager.establish_connection", new_callable=AsyncMock, return_value=mock_client),
+        patch.object(mgr, "_resolve_ble_device", new_callable=AsyncMock, return_value=ble_device),
+        patch.object(mgr, "_wait_for_ready", new_callable=AsyncMock),
+    ):
+        await mgr.connect()
+
+    assert seen == []
+
+
+async def test_a_failing_metadata_subscriber_does_not_block_the_others(mgr, ble_device, caplog):
+    seen = []
+
+    def explode(_metadata):
+        raise RuntimeError("subscriber exploded")
+
+    mock_client = MagicMock()
+    mock_client.services = []
+    mock_client.start_notify = AsyncMock()
+    mgr.subscribe_metadata(explode)
+    mgr.subscribe_metadata(seen.append)
+
+    with caplog.at_level(logging.ERROR, logger="bedjet_hub.ble.manager"):
+        with (
+            patch("bedjet_hub.ble.manager.establish_connection", new_callable=AsyncMock, return_value=mock_client),
+            patch.object(mgr, "_resolve_ble_device", new_callable=AsyncMock, return_value=ble_device),
+            patch.object(mgr, "_wait_for_ready", new_callable=AsyncMock),
+        ):
+            await mgr.connect()
+
+    assert len(seen) == 1
+    assert any("subscriber exploded" in str(r.exc_info) for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# Metadata read failures must be visible
+#
+# Both of these used to be silent: the exception was discarded and the caller
+# skipped the assignment, so a hub with blank firmware/memory names produced no
+# evidence anywhere of why.
+# ---------------------------------------------------------------------------
+
+
+async def test_biodata_read_failures_are_logged(mgr, caplog):
+    mgr._client = MagicMock()
+    mgr._client.write_gatt_char = AsyncMock()
+    mgr._client.read_gatt_char = AsyncMock(side_effect=OSError("gatt read failed"))
+
+    with caplog.at_level(logging.WARNING, logger="bedjet_hub.ble.manager"):
+        result = await mgr._read_biodata(BiodataRequestType.MEMORY_NAMES)
+
+    assert result is None
+    assert any("Biodata read failed" in r.message for r in caplog.records)
+
+
+async def test_initial_reads_warn_when_nothing_could_be_read(mgr, caplog):
+    mgr._client = MagicMock()
+    mgr._client.write_gatt_char = AsyncMock()
+    mgr._client.read_gatt_char = AsyncMock(side_effect=OSError("gatt read failed"))
+
+    with caplog.at_level(logging.WARNING, logger="bedjet_hub.ble.manager"):
+        await mgr._perform_v3_initial_reads()
+
+    assert any("will stay blank" in r.message for r in caplog.records)

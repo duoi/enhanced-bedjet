@@ -61,6 +61,7 @@ class BleManager:
         self._state = DeviceState()
         self._metadata = DeviceMetadata(address=address, model="v3")
         self._subscribers: list[Callable[[DeviceState], None]] = []
+        self._metadata_subscribers: list[Callable[[DeviceMetadata], None]] = []
         self._jitter = JitterSuppressor()
         self._command_queue: asyncio.Queue[bytes] = asyncio.Queue()
         self._reconnect_task: asyncio.Task[None] | None = None
@@ -88,6 +89,16 @@ class BleManager:
         def unsub() -> None:
             if cb in self._subscribers:
                 self._subscribers.remove(cb)
+
+        return unsub
+
+    def subscribe_metadata(self, cb: Callable[[DeviceMetadata], None]) -> Callable[[], None]:
+        """Register a callback for metadata changes. Returns an unsubscribe function."""
+        self._metadata_subscribers.append(cb)
+
+        def unsub() -> None:
+            if cb in self._metadata_subscribers:
+                self._metadata_subscribers.remove(cb)
 
         return unsub
 
@@ -179,6 +190,10 @@ class BleManager:
         self.reset_activity_timer()
         if self._model == "v3":
             await self._perform_v3_initial_reads()
+        # Publish the handshake metadata now that it is complete: a client that
+        # attached to the IPC socket before the reads finished is holding the
+        # empty snapshot, and nothing else would ever correct it.
+        self._notify_metadata_subscribers()
         await self._wait_for_ready()
         self._command_worker_task = asyncio.create_task(self._command_worker())
 
@@ -379,6 +394,20 @@ class BleManager:
             except Exception:
                 pass
 
+    def _notify_metadata_subscribers(self):
+        """Publish the current metadata to every registered subscriber.
+
+        Metadata is discovered once per connection, but consumers cache it: the
+        hub only receives a snapshot when it attaches to the IPC socket, which
+        happens before these reads finish. Publishing on change is what keeps
+        that cache correct.
+        """
+        for cb in list(self._metadata_subscribers):
+            try:
+                cb(self._metadata)
+            except Exception:
+                logger.exception("Metadata subscriber failed")
+
     async def _perform_v3_initial_reads(self):
         try:
             nd = await self._client.read_gatt_char(BEDJET3_NAME_UUID)
@@ -406,6 +435,12 @@ class BleManager:
         except Exception as e:
             logger.warning(f"Initial reads failed: {e}")
 
+        if not self._metadata.firmware_version and not any(self._metadata.memory_names):
+            logger.warning(
+                "Initial reads returned no metadata; firmware, memory and biorhythm "
+                "names will stay blank until the next successful read."
+            )
+
     async def _read_biodata(self, rt):
         for tag in (0, 1):
             try:
@@ -415,8 +450,8 @@ class BleManager:
                 r = protocol_v3.decode_biodata(data)
                 if r.get("type") != "unknown":
                     return r
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(f"Biodata read failed for {rt} (tag {tag}): {exc}")
         return None
 
     async def _wait_for_ready(self):

@@ -25,6 +25,7 @@ class IpcServer:
         self.clients = set()
         self._server = None
         self._unsub = None
+        self._unsub_metadata = None
 
     def _broadcast_state(self, state):
         if not self.clients:
@@ -50,8 +51,9 @@ class IpcServer:
         for writer in list(self.clients):
             try:
                 writer.write(payload.encode())
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(f"Error broadcasting metadata to client: {e}")
+                self.clients.discard(writer)
 
     async def _handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         self.clients.add(writer)
@@ -138,13 +140,19 @@ class IpcServer:
         # Edge Case 7: Explicitly set permissions for User Isolation
         os.chmod(self.sock_path, 0o660)
 
-        # Hook the broadcast
+        # Hook the broadcasts. State changes stream continuously, and metadata
+        # is published whenever the handshake gathers or refreshes it — the
+        # connect-time snapshot alone is sent before the initial GATT reads
+        # finish, which would leave the hub holding empty names and firmware.
         self._unsub = self.ble.subscribe(self._broadcast_state)
+        self._unsub_metadata = self.ble.subscribe_metadata(self._broadcast_metadata)
         return self._server
 
     async def stop(self):
         if self._unsub:
             self._unsub()
+        if self._unsub_metadata:
+            self._unsub_metadata()
         if self._server:
             self._server.close()
             await self._server.wait_closed()

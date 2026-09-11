@@ -26,7 +26,7 @@ def create_app(ble_manager=None, db=None):
     CF_ACCESS_AUD to accept identity tokens from Cloudflare Access. With neither
     set the API is unauthenticated, which is only appropriate on a trusted LAN.
     """
-    app = FastAPI(title="BedJet Hub", version="0.4.0")
+    app = FastAPI(title="BedJet Hub", version="0.4.1")
     cfg = Config()
     auth_config = AuthConfig.from_env()
 
