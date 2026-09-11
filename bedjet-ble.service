@@ -1,3 +1,8 @@
+# systemd unit template for the BedJet BLE worker.
+#
+# Install with ./install-systemd.sh: it substitutes the install-directory
+# placeholder below with the path of your checkout. Do not copy this file into
+# /etc/systemd/system by hand unless you substitute the placeholder yourself.
 [Unit]
 Description=BedJet BLE Bluetooth Worker
 After=network.target bluetooth.target
@@ -5,12 +10,17 @@ After=network.target bluetooth.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/opt/bedjet/hub
-Environment=PATH=/opt/bedjet/hub/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-EnvironmentFile=-/opt/bedjet/hub/.env
+WorkingDirectory=__INSTALL_DIR__
+Environment=PATH=__INSTALL_DIR__/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+EnvironmentFile=-__INSTALL_DIR__/.env
 RuntimeDirectory=bedjet
-ExecStartPre=-/usr/bin/bluetoothctl disconnect D4:8C:49:B7:11:F2
-ExecStart=/opt/bedjet/hub/.venv/bin/python -m bedjet_hub.ble_daemon
+
+# Clear any half-open Bluetooth session left behind by a previous run. The
+# leading "-" keeps the unit starting even when there is nothing to disconnect
+# (for example when BEDJET_ADDRESS is unset and the hub auto-scans instead).
+ExecStartPre=-/usr/bin/bluetoothctl disconnect ${BEDJET_ADDRESS}
+
+ExecStart=__INSTALL_DIR__/.venv/bin/python -m bedjet_hub.ble_daemon
 Restart=always
 RestartSec=3
 TimeoutStopSec=10

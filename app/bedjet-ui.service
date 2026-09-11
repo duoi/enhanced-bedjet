@@ -1,3 +1,8 @@
+# systemd unit template for the BedJet web UI (Vite preview server).
+#
+# Install with ../install-systemd.sh, which replaces __INSTALL_DIR__ with the
+# path of your checkout. Do not copy this file to /etc/systemd/system by hand
+# unless you substitute the placeholder yourself.
 [Unit]
 Description=BedJet Hub Web UI
 After=network.target
@@ -5,7 +10,7 @@ After=network.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/opt/bedjet/hub/app
+WorkingDirectory=__INSTALL_DIR__/app
 Environment=NODE_ENV=production
 ExecStart=/usr/bin/npm run preview -- --host 0.0.0.0 --port 8678
 Restart=on-failure
