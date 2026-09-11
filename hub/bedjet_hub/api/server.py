@@ -2,23 +2,50 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from ..config import Config
+from ..auth import AuthMiddleware
+from ..config import AuthConfig, Config
+
+logger = logging.getLogger(__name__)
 
 
 def create_app(ble_manager=None, db=None):
     """Create and configure the FastAPI application.
 
     Registers device, program, preference, and WebSocket routers.
-    CORS is locked down by default to local origins (port 8678, 5173).
-    Configure the CORS_ORIGINS environment variable for network access.
+
+    CORS is locked down by default to local origins (port 8678, 5173);
+    configure the CORS_ORIGINS environment variable for network access.
+
+    Authentication is optional and configured through the environment: set
+    HUB_API_TOKEN for a shared bearer token, and/or CF_ACCESS_TEAM_DOMAIN with
+    CF_ACCESS_AUD to accept identity tokens from Cloudflare Access. With neither
+    set the API is unauthenticated, which is only appropriate on a trusted LAN.
     """
-    app = FastAPI(title="BedJet Hub", version="0.2.1")
+    app = FastAPI(title="BedJet Hub", version="0.4.0")
     cfg = Config()
+    auth_config = AuthConfig.from_env()
+
+    if auth_config.enabled:
+        # Registered before CORSMiddleware so that CORS stays the outermost layer
+        # and keeps answering preflight requests, which carry no credentials.
+        app.add_middleware(AuthMiddleware, config=auth_config)
+    else:
+        logger.warning(
+            "API is unauthenticated: neither HUB_API_TOKEN nor CF_ACCESS_TEAM_DOMAIN/"
+            "CF_ACCESS_AUD is set. Anyone who can reach this port can control the device."
+        )
 
     if "*" in cfg.cors_origins:
+        if auth_config.enabled:
+            logger.warning(
+                "CORS_ORIGINS is set to '*', which defeats CSRF protection: any website "
+                "the user visits can issue commands to this API. List explicit origins instead."
+            )
         app.add_middleware(
             CORSMiddleware,
             allow_origins=["*"],
