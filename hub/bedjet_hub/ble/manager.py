@@ -204,9 +204,53 @@ class BleManager:
     async def set_mode(self, mode):
         if self._model == "v2":
             await self._set_mode_v2(mode)
-        else:
-            await self._enqueue_command(protocol_v3.encode_button(self._mode_to_button(mode)))
-            await self._wait_for_mode_change(mode)
+            return
+        preserve = self._runtime_to_preserve(mode)
+        await self._enqueue_command(protocol_v3.encode_button(self._mode_to_button(mode)))
+        await self._wait_for_mode_change(mode)
+        if preserve is not None:
+            # The firmware wipes the runtime back to the mode default on
+            # every mode change. Put the remaining time back so that only
+            # an explicit set_runtime() call may change the timer.
+            await asyncio.sleep(1.0)
+            minutes = preserve // 60
+            await self.set_runtime(minutes // 60, minutes % 60)
+
+    # Modes in which the device is actively running a timed session.
+    _RUNNING_MODES = (
+        OperatingMode.HEAT,
+        OperatingMode.TURBO,
+        OperatingMode.EXTENDED_HEAT,
+        OperatingMode.COOL,
+        OperatingMode.DRY,
+    )
+
+    def _runtime_to_preserve(self, target_mode):
+        """Remaining seconds to restore after a mode change, or None.
+
+        Preserves the running timer when switching between operating
+        modes so the run continues on its original schedule. Returns
+        None when starting from off (the firmware default applies), when
+        switching the device off, and for devices without a standalone
+        runtime write (V2).
+        """
+        if self._model != "v3":
+            return None
+        if target_mode not in self._RUNNING_MODES:
+            return None
+        if self._state.mode not in self._RUNNING_MODES:
+            return None
+        # Floor to whole minutes (the protocol has 1-minute resolution)
+        # with a one-minute floor, so a mode change can never extend the
+        # running timer by more than rounding noise.
+        return max(60, (self._remaining_seconds() // 60) * 60)
+
+    def _remaining_seconds(self):
+        """Best estimate of the running timer's remaining seconds."""
+        end = self._state.run_end_time
+        if end is not None:
+            return max(0, int((end - datetime.now(UTC)).total_seconds()))
+        return max(0, int(self._state.runtime_remaining_seconds))
 
     async def set_fan_speed(self, pct):
         if self._model == "v2":

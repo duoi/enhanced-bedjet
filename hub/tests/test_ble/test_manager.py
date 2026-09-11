@@ -6,7 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from bleak.backends.device import BLEDevice
 
-from bedjet_hub.ble.const import OperatingMode
+from bedjet_hub.ble import protocol_v3
+from bedjet_hub.ble.const import ButtonCode, OperatingMode
 from bedjet_hub.ble.manager import BleManager
 from bedjet_hub.ble.state import DeviceState
 
@@ -329,3 +330,172 @@ async def test_reconnect_loop_fires_on_connect_callback(mgr):
     await asyncio.gather(mgr._reconnect_loop(), stop_after_connected())
 
     assert len(connected_events) == 1
+
+
+# ---------------------------------------------------------------------------
+# Runtime preservation across mode changes
+#
+# Firmware resets the runtime to the mode default on every mode change.
+# These tests pin the hub-side rule: only an explicit set_runtime() may
+# change the timer; a mode change while running re-applies the remaining
+# time so the run is never extended.
+# ---------------------------------------------------------------------------
+
+
+def _armed(mgr, mode=OperatingMode.HEAT):
+    mgr._connected = True
+    mgr._client = MagicMock()
+    mgr._state.mode = mode
+    mgr._enqueue_command = AsyncMock()
+    mgr._wait_for_mode_change = AsyncMock()
+    return mgr
+
+
+def _sent(mgr):
+    return [c.args[0] for c in mgr._enqueue_command.await_args_list]
+
+
+_FIXED_NOW = datetime(2026, 9, 9, 12, 0, 0, tzinfo=UTC)
+
+
+class _FrozenDateTime:
+    """datetime stub so remaining-time math is deterministic in tests."""
+
+    @staticmethod
+    def now(tz=None):
+        return _FIXED_NOW
+
+
+def _freeze(monkeypatch):
+    monkeypatch.setattr("bedjet_hub.ble.manager.datetime", _FrozenDateTime)
+
+
+async def test_set_mode_preserves_running_timer(mgr, monkeypatch):
+    """Mode change while running must re-apply the remaining runtime."""
+    _armed(mgr)
+    _freeze(monkeypatch)
+    mgr._state.run_end_time = _FIXED_NOW + timedelta(seconds=3600)
+    monkeypatch.setattr("bedjet_hub.ble.manager.asyncio.sleep", AsyncMock())
+
+    await mgr.set_mode(OperatingMode.COOL)
+
+    sent = _sent(mgr)
+    assert sent[0] == protocol_v3.encode_button(ButtonCode.COOL)
+    assert sent[-1] == protocol_v3.encode_set_runtime(1, 0)
+
+
+async def test_set_mode_preserves_timer_on_same_mode_resend(mgr, monkeypatch):
+    """Re-sending the already-active mode must not extend the timer."""
+    _armed(mgr, OperatingMode.EXTENDED_HEAT)
+    _freeze(monkeypatch)
+    mgr._state.run_end_time = _FIXED_NOW + timedelta(seconds=7200)
+    monkeypatch.setattr("bedjet_hub.ble.manager.asyncio.sleep", AsyncMock())
+
+    await mgr.set_mode(OperatingMode.EXTENDED_HEAT)
+
+    assert _sent(mgr)[-1] == protocol_v3.encode_set_runtime(2, 0)
+
+
+async def test_set_mode_from_standby_keeps_default_runtime(mgr):
+    """Starting a mode while off must use the firmware default runtime."""
+    _armed(mgr, OperatingMode.STANDBY)
+
+    await mgr.set_mode(OperatingMode.HEAT)
+
+    sent = _sent(mgr)
+    assert sent == [protocol_v3.encode_button(ButtonCode.HEAT)]
+
+
+async def test_set_mode_to_standby_does_not_reapply_runtime(mgr):
+    """Turning off must not re-apply a runtime."""
+    _armed(mgr, OperatingMode.HEAT)
+    mgr._state.run_end_time = datetime.now(UTC) + timedelta(seconds=3600)
+
+    await mgr.set_mode(OperatingMode.STANDBY)
+
+    sent = _sent(mgr)
+    assert sent == [protocol_v3.encode_button(ButtonCode.OFF)]
+
+
+async def test_set_mode_preservation_never_extends(mgr, monkeypatch):
+    """Remaining time is floored to whole minutes, so a mode change can
+    only ever shorten (by < 60s), never extend, the running timer."""
+    _armed(mgr)
+    _freeze(monkeypatch)
+    mgr._state.run_end_time = _FIXED_NOW + timedelta(seconds=3599)
+    monkeypatch.setattr("bedjet_hub.ble.manager.asyncio.sleep", AsyncMock())
+
+    await mgr.set_mode(OperatingMode.COOL)
+
+    assert _sent(mgr)[-1] == protocol_v3.encode_set_runtime(0, 59)
+
+
+async def test_set_mode_preservation_has_one_minute_floor(mgr, monkeypatch):
+    """With under a minute left, preserve one minute instead of the
+    firmware's multi-hour mode default."""
+    _armed(mgr)
+    _freeze(monkeypatch)
+    mgr._state.run_end_time = _FIXED_NOW + timedelta(seconds=30)
+    monkeypatch.setattr("bedjet_hub.ble.manager.asyncio.sleep", AsyncMock())
+
+    await mgr.set_mode(OperatingMode.COOL)
+
+    assert _sent(mgr)[-1] == protocol_v3.encode_set_runtime(0, 1)
+
+
+async def test_set_mode_preserves_from_raw_remaining_without_end_time(mgr, monkeypatch):
+    """When no end-time estimate exists, fall back to the raw remaining
+    seconds from the last notification."""
+    _armed(mgr)
+    mgr._state.run_end_time = None
+    mgr._state.runtime_remaining_seconds = 600
+    monkeypatch.setattr("bedjet_hub.ble.manager.asyncio.sleep", AsyncMock())
+
+    await mgr.set_mode(OperatingMode.COOL)
+
+    assert _sent(mgr)[-1] == protocol_v3.encode_set_runtime(0, 10)
+
+
+async def test_v2_mode_change_does_not_reapply_runtime(mgr):
+    """V2 has no standalone runtime write; its mode path is unchanged."""
+    mgr._model = "v2"
+    mgr._state.mode = OperatingMode.HEAT
+    mgr._state.run_end_time = datetime.now(UTC) + timedelta(seconds=3600)
+    mgr._set_mode_v2 = AsyncMock()
+    mgr.set_runtime = AsyncMock()
+
+    await mgr.set_mode(OperatingMode.COOL)
+
+    mgr._set_mode_v2.assert_awaited_once_with(OperatingMode.COOL)
+    mgr.set_runtime.assert_not_awaited()
+
+
+async def test_temperature_change_does_not_touch_runtime(mgr):
+    """Temperature adjustments must never re-apply or reset the timer."""
+    _armed(mgr)
+    mgr._state.run_end_time = datetime.now(UTC) + timedelta(seconds=3600)
+
+    await mgr.set_temperature(25.0)
+
+    sent = _sent(mgr)
+    assert sent == [protocol_v3.encode_set_temperature(25.0)]
+
+
+async def test_fan_change_does_not_touch_runtime(mgr):
+    """Fan adjustments must never re-apply or reset the timer."""
+    _armed(mgr)
+    mgr._state.run_end_time = datetime.now(UTC) + timedelta(seconds=3600)
+
+    await mgr.set_fan_speed(55)
+
+    sent = _sent(mgr)
+    assert sent == [protocol_v3.encode_set_fan(55)]
+
+
+async def test_set_runtime_is_the_only_timer_control(mgr):
+    """An explicit runtime write is passed straight through."""
+    _armed(mgr)
+
+    await mgr.set_runtime(2, 30)
+
+    assert _sent(mgr) == [protocol_v3.encode_set_runtime(2, 30)]
