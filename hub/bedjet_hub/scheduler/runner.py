@@ -54,8 +54,8 @@ class Scheduler:
         if self._poll_task:
             self._poll_task.cancel()
 
-    async def activate_program(self, program, start_time):
-        now = datetime.now(UTC)
+    async def activate_program(self, program, start_time, now=None):
+        now = now or datetime.now(UTC)
         delta = max(0, (now - start_time).total_seconds())
         steps = program["steps"]
         if not steps:
@@ -105,7 +105,17 @@ class Scheduler:
         except Exception:
             await self._db.delete_active_sequence()
             return
-        await self.activate_program(p, st)
+        try:
+            await self.activate_program(p, st)
+        except ValueError as e:
+            if str(e) == "Fully elapsed":
+                logger.info("Resumed program %s has fully elapsed, clearing stale state.", active["program_id"])
+                await self._db.delete_active_sequence()
+            else:
+                raise
+        except Exception:
+            logger.exception("Failed to resume program %s", active["program_id"])
+            await self._db.delete_active_sequence()
 
     async def _step_timer(self, program, idx, end_time):
         sl = (end_time - datetime.now(UTC)).total_seconds()
@@ -169,7 +179,7 @@ class Scheduler:
                 # activate_program expects a UTC aware datetime
                 st = now.astimezone(UTC) if now.tzinfo else datetime.now(UTC)
                 try:
-                    await self.activate_program(p, st)
+                    await self.activate_program(p, st, now=st)
                 except Exception as e:
                     logger.error("Failed to scheduled-activate program %s: %s", p["id"], e)
                 break

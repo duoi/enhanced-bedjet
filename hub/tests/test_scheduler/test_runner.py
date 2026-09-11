@@ -110,13 +110,15 @@ async def test_polling_activates_scheduled_program(sched):
     # Clear it
     await db.delete_active_sequence()
     ble.set_mode.reset_mock()
+    s._last_polled_minute = None
 
-    # Test non-matching day (Tuesday)
+    # Test non-matching day (Tuesday at 22:00, so only the day check can reject it)
     mock_now_wrong_day = datetime(2026, 4, 14, 22, 0, 0, tzinfo=UTC)
     await s._poll_schedules(now=mock_now_wrong_day)
     ble.set_mode.assert_not_called()
 
-    # Test non-matching time (22:01)
+    # Test non-matching time (22:01 on the scheduled day)
+    s._last_polled_minute = None
     mock_now_wrong_time = datetime(2026, 4, 15, 22, 1, 0, tzinfo=UTC)
     await s._poll_schedules(now=mock_now_wrong_time)
     ble.set_mode.assert_not_called()
