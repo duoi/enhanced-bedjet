@@ -38,11 +38,6 @@ async def telemetry_loop(ble: BleProxyClient, db: Database):
             logger.error(f"Telemetry error: {e}\n{traceback.format_exc()}")
         await asyncio.sleep(300)  # 5 minutes
 
-async def try_initial_connect(ble):
-    pass
-
-
-
 async def main():
     cfg = Config()
     db = Database(cfg.db_path)
