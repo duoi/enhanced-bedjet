@@ -5,6 +5,7 @@ import {
   createWebSocket,
   getStoredHubAddress,
   storeHubAddress,
+  DEFAULT_HUB_ADDRESS,
 } from "./api";
 
 beforeEach(() => {
@@ -14,7 +15,7 @@ beforeEach(() => {
 
 describe("getStoredHubAddress", () => {
   it("returns default hub address when nothing has been stored", () => {
-    expect(getStoredHubAddress()).toBe("10.0.0.175:8265");
+    expect(getStoredHubAddress()).toBe(DEFAULT_HUB_ADDRESS);
   });
 
   it("returns the stored address", () => {

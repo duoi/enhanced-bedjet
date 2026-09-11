@@ -3,7 +3,6 @@ import json
 
 import pytest
 
-# We are intentionally importing a module that doesn't exist yet to prove it fails
 from bedjet_hub.ble.ipc_server import start_ipc_server
 
 
@@ -15,10 +14,15 @@ async def test_ipc_server_responds_to_command(tmp_path):
     class MockBle:
         def __init__(self):
             self.temp = None
+            self.subscribers = []
 
         async def set_temperature(self, c):
             self.temp = c
             return True
+
+        def subscribe(self, callback):
+            self.subscribers.append(callback)
+            return lambda: self.subscribers.remove(callback)
 
     ble = MockBle()
 

@@ -6,7 +6,7 @@ let mockTestHubConnection;
 
 vi.mock("./api", () => ({
   testHubConnection: (...args) => mockTestHubConnection(...args),
-  DEFAULT_HUB_ADDRESS: "10.0.0.175:8265",
+  DEFAULT_HUB_ADDRESS: "",
 }));
 
 beforeEach(() => {
@@ -45,9 +45,7 @@ describe("SetupScreen", () => {
     render(<SetupScreen onConnect={vi.fn()} onSkip={() => {}} />);
 
     await waitFor(() => {
-      expect(
-        screen.getByPlaceholderText("10.0.0.175:8265"),
-      ).toBeInTheDocument();
+      expect(screen.getByPlaceholderText("192.168.1.x:8265")).toBeInTheDocument();
     });
   });
 
@@ -60,18 +58,16 @@ describe("SetupScreen", () => {
     render(<SetupScreen onConnect={onConnect} onSkip={() => {}} />);
 
     await waitFor(() => {
-      expect(
-        screen.getByPlaceholderText("10.0.0.175:8265"),
-      ).toBeInTheDocument();
+      expect(screen.getByPlaceholderText("192.168.1.x:8265")).toBeInTheDocument();
     });
 
-    fireEvent.change(screen.getByPlaceholderText("10.0.0.175:8265"), {
-      target: { value: "10.0.0.5:8265" },
+    fireEvent.change(screen.getByPlaceholderText("192.168.1.x:8265"), {
+      target: { value: "192.168.1.50:8265" },
     });
     fireEvent.click(screen.getByText("Connect"));
 
     await waitFor(() => {
-      expect(onConnect).toHaveBeenCalledWith("10.0.0.5:8265");
+      expect(onConnect).toHaveBeenCalledWith("192.168.1.50:8265");
     });
   });
 });
