@@ -3,12 +3,37 @@
 controls as MCP tools over stdio (JSON-RPC 2.0)."""
 
 import json
+import os
 import sys
-import urllib.request
 import urllib.error
+import urllib.request
 from dataclasses import dataclass
 
-HUB_URL = "http://localhost:8265"
+#: Base URL of the hub API. Override for a non-default host or port.
+HUB_URL = os.environ.get("BEDJET_HUB_URL", "http://localhost:8265")
+
+
+def hub_headers(extra=None):
+    """Request headers for the hub API.
+
+    Adds ``Authorization: Bearer`` when ``HUB_API_TOKEN`` is set, so the MCP
+    server keeps working against a hub that has authentication enabled. Read at
+    call time rather than import time so a long-lived process picks up changes.
+    """
+    headers = dict(extra or {})
+    token = os.environ.get("HUB_API_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+def unauthorized_error():
+    """RPC error describing a rejected request, with the likely cause."""
+    return RpcError(
+        -32000,
+        "Hub rejected the request (401 Unauthorized). Set HUB_API_TOKEN for the MCP "
+        "server to match the hub's configuration.",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -39,9 +64,14 @@ def rpc_error(id_, code, message, data=None):
 
 def hub_get(path):
     url = f"{HUB_URL}/api{path}"
+    req = urllib.request.Request(url, headers=hub_headers())
     try:
-        with urllib.request.urlopen(url, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=10) as resp:
             return json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            raise unauthorized_error() from e
+        raise RpcError(-32000, f"HTTP {e.code}: {e.reason}") from e
     except urllib.error.URLError as e:
         raise RpcError(-32000, f"Hub unreachable: {e}")
 
@@ -50,16 +80,21 @@ def hub_post(path, body=None):
     url = f"{HUB_URL}/api{path}"
     data = json.dumps(body).encode() if body else b""
     req = urllib.request.Request(
-        url, data=data, headers={"Content-Type": "application/json"}, method="POST"
+        url,
+        data=data,
+        headers=hub_headers({"Content-Type": "application/json"}),
+        method="POST",
     )
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             return json.loads(resp.read())
     except urllib.error.HTTPError as e:
+        if e.code == 401:
+            raise unauthorized_error() from e
         try:
             return json.loads(e.read())
         except Exception:
-            raise RpcError(-32000, f"HTTP {e.code}: {e.reason}")
+            raise RpcError(-32000, f"HTTP {e.code}: {e.reason}") from e
     except urllib.error.URLError as e:
         raise RpcError(-32000, f"Hub unreachable: {e}")
 
@@ -68,21 +103,32 @@ def hub_put(path, body):
     url = f"{HUB_URL}/api{path}"
     data = json.dumps(body).encode()
     req = urllib.request.Request(
-        url, data=data, headers={"Content-Type": "application/json"}, method="PUT"
+        url,
+        data=data,
+        headers=hub_headers({"Content-Type": "application/json"}),
+        method="PUT",
     )
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             return json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            raise unauthorized_error() from e
+        raise RpcError(-32000, f"HTTP {e.code}: {e.reason}") from e
     except urllib.error.URLError as e:
         raise RpcError(-32000, f"Hub unreachable: {e}")
 
 
 def hub_delete(path):
     url = f"{HUB_URL}/api{path}"
-    req = urllib.request.Request(url, method="DELETE")
+    req = urllib.request.Request(url, headers=hub_headers(), method="DELETE")
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             return json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            raise unauthorized_error() from e
+        raise RpcError(-32000, f"HTTP {e.code}: {e.reason}") from e
     except urllib.error.URLError as e:
         raise RpcError(-32000, f"Hub unreachable: {e}")
 
