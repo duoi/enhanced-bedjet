@@ -56,7 +56,7 @@ Verify:
 ```bash
 bluetoothctl scan on
 # Wait 10-15 seconds, look for "BedJet" or "BEDJET3"
-# Note the MAC address (e.g., D4:8C:49:B7:11:F2)
+# Note the MAC address (e.g., AA:BB:CC:DD:EE:FF)
 bluetoothctl scan off
 ```
 
@@ -64,21 +64,21 @@ If you already know the MAC, skip the scan.
 
 ## Step 4: Configure Environment
 
-Create `/opt/bedjet/hub/.env`:
+Create `.env` in the repository root:
 ```bash
-echo 'BEDJET_ADDRESS=<YOUR_MAC_HERE>' > /opt/bedjet/hub/.env
+echo 'BEDJET_ADDRESS=<YOUR_MAC_HERE>' > .env
 ```
 
 Example:
 ```bash
-echo 'BEDJET_ADDRESS=D4:8C:49:B7:11:F2' > /opt/bedjet/hub/.env
+echo 'BEDJET_ADDRESS=AA:BB:CC:DD:EE:FF' > .env
 ```
 
 This file is loaded by systemd via `EnvironmentFile`. Do NOT commit it to version control.
 
 Verify:
 ```bash
-cat /opt/bedjet/hub/.env
+cat .env
 # Should show BEDJET_ADDRESS=<mac>
 ```
 
@@ -105,17 +105,20 @@ If the device status shows connection info, it's working. Stop the manual run wi
 
 ## Step 6: Install Systemd Services
 
-### Hub Service
-
-The files are at `/opt/bedjet/hub/bedjet-ble.service` and `/opt/bedjet/hub/bedjet-hub.service`. Install them:
+The unit files are templates: `bedjet-ble.service` and `bedjet-hub.service` at the repository root, plus `app/bedjet-ui.service`. `install-systemd.sh` substitutes the install-directory placeholder in each template and writes the result to `/etc/systemd/system`:
 
 ```bash
-cp /opt/bedjet/hub/bedjet-ble.service /etc/systemd/system/
-cp /opt/bedjet/hub/bedjet-hub.service /etc/systemd/system/
-systemctl daemon-reload
-systemctl enable bedjet-ble.service bedjet-hub.service
-systemctl start bedjet-ble.service
-systemctl start bedjet-hub.service
+cd /opt/bedjet/hub
+sudo ./install-systemd.sh
+
+# For a checkout elsewhere, pass the path explicitly:
+# sudo ./install-systemd.sh /path/to/checkout
+```
+
+Then enable and start them:
+
+```bash
+systemctl enable --now bedjet-ble.service bedjet-hub.service
 ```
 
 Verify:
@@ -135,12 +138,9 @@ npm install
 npm run build
 ```
 
-Install the UI service:
+Enable and start the UI service (it was installed along with the others):
 ```bash
-cp /opt/bedjet/hub/app/bedjet-ui.service /etc/systemd/system/
-systemctl daemon-reload
-systemctl enable bedjet-ui.service
-systemctl start bedjet-ui.service
+systemctl enable --now bedjet-ui.service
 ```
 
 Verify:
@@ -325,13 +325,19 @@ The UI probes for the hub on load. If it shows the setup screen:
 | `HUB_PORT` | `8265` | HTTP/WebSocket port |
 | `DB_PATH` | `data/bedjet.db` | SQLite database path |
 | `CORS_ORIGINS` | `localhost:8678`| Comma-separated list of allowed Origins. Add your UI domain/IP (e.g. `http://192.168.1.50:8678`) to prevent cross-site hijacking. |
+| `HUB_API_TOKEN` | *(unset)* | Shared bearer token required on every protected API request. |
+| `HUB_API_TOKEN_WS_QUERY` | `true` | Allow `/ws` to accept the token as a `?token=` query parameter. |
+| `CF_ACCESS_TEAM_DOMAIN` | *(unset)* | Cloudflare Access team domain, used as the expected JWT issuer. |
+| `CF_ACCESS_AUD` | *(unset)* | Cloudflare Access Application Audience (AUD) tag. |
+| `CF_ACCESS_ALLOWED_EMAILS` | *(unset)* | Optional comma-separated allowlist of identities. |
+| `CF_ACCESS_JWKS_TTL` | `1800` | Seconds to cache Access signing keys before refetching. |
 
 All configured in `.env`, loaded by systemd's `EnvironmentFile`.
 
 ## Security Notes
 
 - The hub binds to `0.0.0.0` — it's accessible to any device on the LAN
-- No authentication — this is a local-network-only device
-- The `.env` file contains the BLE MAC address — treat it as semi-sensitive
+- The API has **no authentication by default**, which is only appropriate on a trusted network. Before exposing the hub beyond one, set `HUB_API_TOKEN` and/or `CF_ACCESS_TEAM_DOMAIN` + `CF_ACCESS_AUD`. Protected paths are `/api/*`, `/ws`, `/docs`, `/redoc`, and `/openapi.json`; when both mechanisms are configured, satisfying either one is accepted.
+- The `.env` file contains the BLE MAC address and any access token — treat it as sensitive and keep it out of version control
 - CORS is restricted by default to `localhost`. If you access the web UI via an IP address (e.g. `http://192.168.1.50:8678`), you MUST add `CORS_ORIGINS=http://192.168.1.50:8678` to your `.env` file. Do NOT set it to `*` or any website you visit can hijack the BedJet API.
-- The MCP server connects to `localhost:8265` only — no external exposure
+- The MCP server connects to `localhost:8265` only — no external exposure. Export the same `HUB_API_TOKEN` for it when the hub has one set.

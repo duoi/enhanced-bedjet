@@ -157,4 +157,4 @@ Previously, forcefully restarting the Python process holding the BLE connection 
 
 **Resolution in v0.3.0:** The architecture was updated to decouple the physical BLE connection into a standalone worker process (`bedjet-ble.service`). Because the web server and API logic now live in a separate process, you can restart, crash, or patch the web API without ever restarting the BLE worker, completely preventing the creation of zombie sockets. 
 
-**Manual Fix (if developing locally):** If you are developing locally without the two-service systemd architecture and forcefully kill your terminal session, you may still create a ghost connection. To resolve it, run `bluetoothctl disconnect <MAC>` (where `<MAC>` is your BedJet's address, e.g., `D4:8C:49:B7:11:F2`).
+**Manual Fix (if developing locally):** If you are developing locally without the two-service systemd architecture and forcefully kill your terminal session, you may still create a ghost connection. To resolve it, run `bluetoothctl disconnect <MAC>` (where `<MAC>` is your BedJet's address, e.g., `AA:BB:CC:DD:EE:FF`).

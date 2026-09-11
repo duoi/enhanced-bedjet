@@ -30,6 +30,7 @@ Phone / Tablet                 Raspberry Pi              BedJet
 - **Optimistic UI** — instant feedback with convergence checks against the device
 - **Dual protocol** — supports both BedJet V2 (ISSC) and V3 (Nordic) BLE protocols
 - **Auto-reconnect** with exponential backoff
+- **Optional authentication** — shared bearer token and/or Cloudflare Access
 - **mDNS discovery** for zero-config hub finding
 - **Offline-capable** PWA with service worker caching
 - **MCP server** (`mcp/`) — stdio proxy for AI agent integration (zero dependencies)
@@ -70,8 +71,44 @@ The hub starts on `0.0.0.0:8265` by default. Configuration is via environment va
 | `HUB_PORT` | `8265` | HTTP/WebSocket port |
 | `DB_PATH` | `data/bedjet.db` | SQLite database path |
 | `CORS_ORIGINS` | `localhost:8678` | Comma-separated list of allowed Origins for the UI (e.g., `http://192.168.1.50:8678`). Replace with your IP/Domain for security. |
+| `HUB_API_TOKEN` | *(disabled)* | Shared bearer token required on every API request. See [Authentication](#authentication). |
+| `HUB_API_TOKEN_WS_QUERY` | `true` | Allow `/ws` to accept the token as a `?token=` query parameter. |
+| `CF_ACCESS_TEAM_DOMAIN` | *(disabled)* | Cloudflare Access team domain, used as the expected JWT issuer. |
+| `CF_ACCESS_AUD` | *(disabled)* | Cloudflare Access Application Audience (AUD) tag. |
+| `CF_ACCESS_ALLOWED_EMAILS` | *(any identity)* | Optional comma-separated allowlist of identities. |
+| `CF_ACCESS_JWKS_TTL` | `1800` | Seconds to cache Access signing keys before refetching. |
 
-For production deployment, use the provided systemd templates (`hub/bedjet-ble.service` and `hub/bedjet-hub.service`). The decoupled services ensure that restarting the API does not drop the physical Bluetooth connection.
+For production deployment, run `sudo ./install-systemd.sh` from the checkout root. It renders the unit templates (`bedjet-ble.service`, `bedjet-hub.service`, and `app/bedjet-ui.service`) against your install path and writes them to `/etc/systemd/system`. The decoupled services ensure that restarting the API does not drop the physical Bluetooth connection.
+
+### Authentication
+
+The API is **unauthenticated by default**, which is only appropriate on a trusted network. Two independent mechanisms are available and both are off unless configured; when both are set, a request satisfying **either** one is allowed through. The protected surface is `/api/*`, `/ws`, `/docs`, `/redoc`, and `/openapi.json` — other paths stay open so a static UI can still load.
+
+**Shared bearer token**
+
+```bash
+export HUB_API_TOKEN="$(openssl rand -hex 32)"
+
+curl -H "Authorization: Bearer $HUB_API_TOKEN" http://localhost:8265/api/device
+```
+
+WebSocket clients in a browser cannot set request headers, so `/ws` also accepts the token as a `?token=` query parameter. Query strings reach access logs, so disable it with `HUB_API_TOKEN_WS_QUERY=false` if you front browser traffic with Cloudflare Access instead.
+
+**Cloudflare Access**
+
+Publish the hub through a tunnel, then create a **self-hosted Access application targeting the public hostname** — not a Worker destination, because Access does not proxy WebSocket upgrades for Worker destinations. Set:
+
+```bash
+export CF_ACCESS_TEAM_DOMAIN="https://<your-team>.cloudflareaccess.com"
+export CF_ACCESS_AUD="<Application Audience (AUD) tag>"
+```
+
+The hub verifies the `Cf-Access-Jwt-Assertion` header on every request: signature against the team's published signing keys, plus the issuer and audience claims. Signing keys are cached and refetched as Access rotates them (every six weeks). Use `CF_ACCESS_ALLOWED_EMAILS` to restrict access to specific people.
+
+Two things worth knowing:
+
+- Access is enforced at Cloudflare's edge, so **a bearer token alone cannot get past it.** Automated clients reaching an Access-protected hub must also present an Access [service token](https://developers.cloudflare.com/cloudflare-one/access-controls/service-credentials/service-tokens/), or connect to the hub directly.
+- With **only** `HUB_API_TOKEN` set, browser traffic needs the token too. Put the same value in `app/.env`: the dev/preview proxy attaches it to outgoing `/api` and `/ws` requests server-side, so the browser never handles the secret. (Cloudflare Access needs no app-side configuration — the user is authenticated upstream.)
 
 ### App
 
@@ -89,6 +126,11 @@ npm run build
 ```
 
 On first launch, the app probes for a proxy connection. If unavailable, it shows a setup screen where you enter the hub's IP address.
+
+The dev and preview servers proxy `/api` and `/ws` to the hub on your behalf. Copy `app/.env.example` to `app/.env` to configure:
+
+- `ALLOWED_HOSTS` — hostnames the preview server will answer for. Required when the built app is reached through a name other than `localhost` (a reverse proxy or tunnel, for example); otherwise requests are rejected with `Blocked request. This host is not allowed.`
+- `HUB_API_TOKEN` — set this when the hub runs with `HUB_API_TOKEN`, so the proxy can authenticate browser traffic on the app's behalf. The token stays server-side.
 
 ## Project Structure
 
@@ -109,14 +151,13 @@ On first launch, the app probes for a proxy connection. If unavailable, it shows
 │   └── public/             # PWA manifest, icons, service worker
 ├── hub/                    # Python hub daemons
 │   ├── bedjet_hub/
+│   │   ├── auth.py         # Optional bearer-token / JWT middleware
 │   │   ├── api/            # FastAPI routes + WebSocket
 │   │   ├── ble/            # BLE protocol (V2 + V3), IPC server/client
 │   │   ├── ble_daemon.py   # Headless Bluetooth worker process
 │   │   ├── db/             # SQLite (programs, preferences)
 │   │   └── scheduler/      # Biorhythm program executor
 │   ├── tests/              # pytest test suite
-│   ├── bedjet-ble.service  # systemd service for Bluetooth connection
-│   ├── bedjet-hub.service  # systemd service for Web API
 │   └── pyproject.toml
 ├── mcp/                    # AI agent integration
 │   ├── server.py           # MCP stdio proxy (zero dependencies)
@@ -125,6 +166,9 @@ On first launch, the app probes for a proxy connection. If unavailable, it shows
 │   ├── BEDJET_BLE_API_REFERENCE.md
 │   ├── BEDJET_SYSTEM_ARCHITECTURE.md
 │   └── BEDJET_QUIRKS.md
+├── bedjet-ble.service      # systemd unit template (Bluetooth worker)
+├── bedjet-hub.service      # systemd unit template (web API)
+├── install-systemd.sh      # renders the unit templates for your install path
 └── AGENTS.md               # Autonomous agent setup guide
 ```
 
@@ -178,12 +222,12 @@ npm test
 
 ## MCP Server
 
-The `mcp/` directory contains a stdio MCP server that exposes the BedJet Hub API as AI agent tools. Zero dependencies beyond Python 3 — it proxies MCP protocol calls to the hub's REST API at `localhost:8265`.
+The `mcp/` directory contains a stdio MCP server that exposes the BedJet Hub API as AI agent tools. Zero dependencies beyond Python 3 — it proxies MCP protocol calls to the hub's REST API at `http://localhost:8265` (override with `BEDJET_HUB_URL`). If the hub is configured with `HUB_API_TOKEN`, export the same value for the MCP server; it sends `Authorization: Bearer` on every request.
 
 ### With Hermes Agent
 
 ```bash
-hermes mcp add bedjet --command python3 --args /opt/bedjet/hub/mcp/server.py
+hermes mcp add bedjet --command python3 --args /path/to/mcp/server.py
 ```
 
 Tools register as `mcp_bedjet_*` (e.g. `mcp_bedjet_get_device_status`, `mcp_bedjet_set_target_temperature`). See `mcp/SKILL.md` for the full tool list and usage guidance.

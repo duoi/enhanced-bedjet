@@ -404,6 +404,12 @@ Minimal configuration via environment variables or a config file:
 | `HUB_PORT` | `8265` | API listen port |
 | `DB_PATH` | `data/bedjet.db` | SQLite database path |
 | `CORS_ORIGINS` | `http://localhost:8678,...` | Comma-separated list of allowed origins |
+| `HUB_API_TOKEN` | unset | Shared bearer token required on protected paths |
+| `HUB_API_TOKEN_WS_QUERY` | `true` | Allow `/ws` to accept the token as `?token=` |
+| `CF_ACCESS_TEAM_DOMAIN` | unset | Identity proxy team domain (expected JWT issuer) |
+| `CF_ACCESS_AUD` | unset | Application Audience (AUD) tag the JWT must carry |
+| `CF_ACCESS_ALLOWED_EMAILS` | unset | Optional comma-separated identity allowlist |
+| `CF_ACCESS_JWKS_TTL` | `1800` | Seconds to cache signing keys |
 
 If `BEDJET_ADDRESS` is not set, the hub scans for the first discoverable BedJet device and uses that.
 
@@ -490,12 +496,35 @@ interface HubClient {
 
 ## 6. Security
 
-This system runs on a local network with no internet exposure. Security is minimal but not zero.
+The hub is designed for a trusted local network. It can be exposed to an
+untrusted network — through a tunnel or reverse proxy, for example — but only
+with authentication enabled.
 
-- The hub API has no authentication by default.
-- The hub should bind to the local network interface only.
-- If the network is untrusted, add a shared secret as a bearer token in the hub config and validate it on every request.
-- Do not expose the hub port to the internet.
+The API has **no authentication by default**. Two optional mechanisms are
+configured through the environment. Enabling either one, or both, makes
+`/api/*`, `/ws`, `/docs`, `/redoc`, and `/openapi.json` deny-by-default; when
+both are enabled a request satisfying either one is accepted.
+
+| Mechanism | Configuration | Behaviour |
+| --- | --- | --- |
+| Shared bearer token | `HUB_API_TOKEN` | `Authorization: Bearer <token>` on every request, compared in constant time. `/ws` also accepts `?token=` because browsers cannot set headers on a WebSocket handshake; disable that with `HUB_API_TOKEN_WS_QUERY=false`. |
+| Identity token (JWT) | `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD` | A signed token in the `Cf-Access-Jwt-Assertion` header is verified against the issuer's published signing keys, plus its `iss` and `aud` claims. Restrict to named identities with `CF_ACCESS_ALLOWED_EMAILS`. |
+
+Enforcement lives in a **pure ASGI** middleware (`bedjet_hub/auth.py`) rather
+than HTTP-scoped middleware, so that it also covers the WebSocket upgrade:
+HTTP-scoped middleware never sees a WebSocket connection and would leave `/ws`
+open. Rejected handshakes are closed before acceptance, which a server such as
+uvicorn reports to the client as `HTTP 403`.
+
+Verification fails closed. If signing keys cannot be fetched, or a request
+satisfies no enabled mechanism, it is rejected.
+
+Further guidance:
+
+- Bind to the local interface only (`HUB_HOST`), and keep the hub port closed at the firewall when it is reached through a tunnel.
+- Keep `CORS_ORIGINS` an explicit list. A wildcard lets any website the user visits issue commands to the device, because CORS preflight is what prevents cross-site writes to a JSON API.
+- Controls applied at a proxy are enforced at that layer only. Validating the identity token at the origin as well means a request that reaches the origin by another route is still rejected.
+- Do not expose the hub port to the internet without authentication configured.
 
 ## 7. Deployment
 
